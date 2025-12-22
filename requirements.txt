@@ -1,0 +1,17 @@
+# Core Dependencies for KiwixRAG
+# Note: PyTorch (GPU) is handled by setup.sh
+
+# Embeddings & RAG
+sentence-transformers
+faiss-cpu
+rank_bm25
+beautifulsoup4
+huggingface-hub
+
+# Local Inference
+llama-cpp-python
+
+# Utilities
+numpy
+tqdm
+requests

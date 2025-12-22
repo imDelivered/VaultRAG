@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== KiwixRAG Setup Script ==="
+echo "Sets up the local AI environment with GPU support."
+echo ""
+
+# Check configured directory for models
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Check sudo access (for system packages)
+if ! sudo -n true 2>/dev/null; then
+    echo "Note: Sudo access required for system packages (python3, libzim)."
+fi
+
+# 1. System Packages
+echo "[1/5] Installing System Prerequisites..."
+sudo apt update -qq
+sudo apt install -y python3 python3-venv python3-full python3-tk python3-libzim curl > /dev/null 2>&1
+echo "✓ System packages installed"
+
+# 2. Virtual Environment
+echo "[2/5] Setting up Virtual Environment..."
+if [ ! -d "venv" ]; then
+    python3 -m venv --system-site-packages venv
+    echo "✓ Virtual environment created"
+else
+    echo "✓ Virtual environment exists"
+fi
+
+# 3. GPU support (PyTorch CUDA 12.1)
+echo "[3/5] Installing PyTorch with CUDA support..."
+# We explicitly install the CUDA version. 
+# It's safe to run this even if installed; pip handles caching.
+./venv/bin/pip install torch --index-url https://download.pytorch.org/whl/cu121 > /dev/null 2>&1
+echo "✓ PyTorch (CUDA) installed"
+
+# 4. Core Dependencies
+echo "[4/5] Installing Project Dependencies..."
+./venv/bin/pip install -r requirements.txt > /dev/null 2>&1
+
+echo "[4.5/5] Compiling llama-cpp-python with CUDA..."
+# Force reinstall to ensure CUDA compilation
+CMAKE_ARGS="-DGGML_CUDA=on" ./venv/bin/pip install llama-cpp-python --upgrade --force-reinstall --no-cache-dir > /dev/null 2>&1
+echo "✓ llama-cpp-python (CUDA) installed"
+
+# 5. Check Resources
+echo "[5/5] Checking Resources..."
+# ZIM Check
+ZIM_FILE=$(find . -maxdepth 1 -name "*.zim" | head -n 1)
+if [ -n "$ZIM_FILE" ]; then
+    echo "✓ Found ZIM file: $ZIM_FILE"
+else
+    echo "⚠️  No .zim file found. Please place your Wikipedia ZIM file here."
+fi
+
+# Model Directory Check
+SHARED_MODELS="shared_models"
+mkdir -p "$SHARED_MODELS"
+echo "✓ Model directory verified: $SHARED_MODELS"
+echo "  (Models will be automatically downloaded here on first run)"
+
+# Enable 'krag' command
+echo ""
+echo "Setting up 'krag' command..."
+KRAG_WRAPPER="/usr/local/bin/krag"
+sudo tee "$KRAG_WRAPPER" > /dev/null << KRAG_EOF
+#!/usr/bin/env bash
+INSTALL_DIR="$SCRIPT_DIR"
+if [ -f "\$INSTALL_DIR/run_chatbot.sh" ]; then
+    exec "\$INSTALL_DIR/run_chatbot.sh" "\$@"
+else
+    echo "Error: installation corrupted"
+    exit 1
+fi
+KRAG_EOF
+sudo chmod +x "$KRAG_WRAPPER"
+echo "✓ 'krag' command installed"
+
+echo ""
+echo "=== Setup Complete! ==="
+echo "Run the chatbot with: krag"

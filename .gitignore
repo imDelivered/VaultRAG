@@ -1,0 +1,8 @@
+venv/
+__pycache__/
+*.pyc
+*.zim
+shared_models/
+data/index/
+*.log
+.DS_Store
