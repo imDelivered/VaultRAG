@@ -386,6 +386,7 @@ class RAGSystem:
             # A. Keyword Search (using expanded terms if available)
             # For comparison queries, search more terms to ensure coverage of all entities
             debug_print("0b. Performing keyword-based title search...")
+            debug_print(f"    search_terms: {search_terms}")
             max_terms = 6 if is_comparison else 3  # More terms for comparison queries
             for term in search_terms[:max_terms]:
                 keyword_candidates = self.search_by_title(term, full_text=True)
@@ -765,6 +766,7 @@ class RAGSystem:
         else:
             # Search all ZIM files in current directory
             zim_files_to_search = [f for f in os.listdir('.') if f.endswith('.zim')]
+            debug_print(f"  ZIM files to search in '.': {zim_files_to_search}")
             
         if not zim_files_to_search:
             debug_print("No ZIM files found")
@@ -820,29 +822,73 @@ class RAGSystem:
 
                 scored_keywords.sort(key=lambda x: x[1], reverse=True)
                 keywords = [w for w, s in scored_keywords[:3]]
+                debug_print(f"  Extracted keywords for title search: {keywords}")
                 
                 hits_map = {} 
                 
-                # Strategy 1: Full phrase
-                if keywords:
+                # Strategy 1: Individual keywords (Try subjects first)
+                # Reverse sort by length or manually pick likely subjects
+                sorted_keywords = sorted(keywords, key=len, reverse=True)
+                for kw in sorted_keywords[:3]:
+                    debug_print(f"RAG:   Trying keyword title search: '{kw}'")
+                    results = searcher.suggest(kw)
+                    if results.getEstimatedMatches() > 0:
+                         self._collect_hits(zim, results, hits_map, full_text, source=current_zim_path)
+                         if len(hits_map) >= 5: break
+
+                # Strategy 2: Full phrase (Less reliable for prefix search)
+                if len(hits_map) < 3 and keywords:
                     full_term = " ".join(keywords)
+                    debug_print(f"RAG:   Trying full phrase title search: '{full_term}'")
                     results = searcher.suggest(full_term)
                     if results.getEstimatedMatches() > 0:
                          self._collect_hits(zim, results, hits_map, full_text, source=current_zim_path)
-                
-                # Strategy 2: Individual keywords
-                if len(hits_map) < 3 and keywords:
-                    sorted_keywords = sorted(keywords, key=len, reverse=True)
-                    for kw in sorted_keywords[:2]:
-                        results = searcher.suggest(kw)
-                        if results.getEstimatedMatches() > 0:
-                             self._collect_hits(zim, results, hits_map, full_text, source=current_zim_path)
                              
                 # Strategy 3: Original query
                 if not hits_map:
                     results = searcher.suggest(query)
                     if results.getEstimatedMatches() > 0:
                         self._collect_hits(zim, results, hits_map, full_text, source=current_zim_path)
+
+                # Strategy 4: Fallback Linear Scan (Robustness for custom/unindexed small ZIMs)
+                # If libzim indexing failed (common with some bindings/custom ZIMs), we scan titles linearly.
+                if not hits_map and zim.entry_count < 10000:
+                    # Only try this for reasonably small ZIMs to avoid performance hit
+                    debug_print(f"  Fallback: Linear scan for small ZIM '{current_zim_path}' ({zim.entry_count} entries)...")
+                    for i in range(zim.entry_count):
+                        try:
+                            entry = zim._get_entry_by_id(i)
+                            if entry.is_redirect: continue
+                            
+                            # Basic string matching
+                            # We check if query terms are in the title
+                            if query.lower() in entry.title.lower():
+                                debug_print(f"    - Fallback matched: '{entry.title}'")
+                                
+                                content_snippet = ""
+                                if full_text:
+                                    try:
+                                        item = entry.get_item()
+                                        if item.mimetype == "text/html":
+                                            raw_text = TextProcessor.extract_text(item.content)
+                                            content_snippet = raw_text[:500] if raw_text else ""
+                                    except: pass
+                                
+                                hits_map[entry.path] = {
+                                    'metadata': {
+                                        'title': entry.title,
+                                        'path': entry.path,
+                                        'zim_index': i,
+                                        'source_zim': current_zim_path,
+                                        'snippet': content_snippet
+                                    },
+                                    'score': 100.0 # High priority for direct title match
+                                }
+                        except Exception as e:
+                            continue
+                    
+                    if hits_map:
+                        debug_print(f"  Fallback found {len(hits_map)} matches.")
 
                 all_results.extend(list(hits_map.values()))
 
@@ -851,9 +897,9 @@ class RAGSystem:
                 continue
         
         # Deduplicate results across ZIMs (unlikely overlap but possible with titles)
-        # We'll just return top 10 total
+        # We'll just return top 25 total to ensure diversity from multiple ZIMs
         debug_print(f"Total results across all ZIMs: {len(all_results)}")
-        return all_results[:10]
+        return all_results[:25]
 
     def search_by_embedding(self, query: str, top_k: int = 5, zim_path: str = None, full_text: bool = False) -> List[Dict]:
         """Search titles using vector embeddings."""
@@ -915,32 +961,49 @@ class RAGSystem:
 
     def _collect_hits(self, zim, results, hits_map: Dict, full_text: bool, source: str = None):
         """Helper to collect and process hits."""
-        s_hits = results.getResults(0, 5) # Top 5 per strategy
-        for hit_path in s_hits:
-            if hit_path in hits_map:
-                continue
-            try:
+        try:
+            s_hits = results.getResults(0, 5) # Top 5 per strategy
+            debug_print(f"    _collect_hits: Processing {len(s_hits) if hasattr(s_hits, '__len__') else 'unknown'} hits from source {source}")
+            
+            for hit_path in s_hits:
+                if hit_path in hits_map:
+                    continue
                 try:
-                    entry = zim.get_entry_by_path(hit_path)
-                except:
-                    entry = zim.get_entry_by_title(hit_path)
+                    # In libzim 3.6.0+, hit_path is the string path
+                    entry = None
+                    try:
+                        entry = zim.get_entry_by_path(hit_path)
+                    except:
+                        try:
+                            # Fallback if it's somehow a title or other identifier
+                            entry = zim.get_entry_by_title(hit_path)
+                        except Exception as e:
+                            debug_print(f"      Failed to get entry for '{hit_path}': {e}")
+                            continue
                     
-                item = entry.get_item()
-                if item.mimetype == 'text/html':
-                    text = TextProcessor.extract_text(item.content)
-                    display_text = text if full_text else text[:2000]
-                    
-                    hits_map[hit_path] = {
-                        'text': display_text, 
-                        'metadata': {
-                            'title': entry.title, 
-                            'path': entry.path,
-                            'source_zim': source
-                        },
-                        'score': 1.0
-                    }
-            except:
-                continue
+                    if not entry:
+                         continue
+
+                    item = entry.get_item()
+                    if item.mimetype == 'text/html':
+                        text = TextProcessor.extract_text(item.content)
+                        display_text = text if full_text else text[:2000]
+                        
+                        hits_map[hit_path] = {
+                            'text': display_text, 
+                            'metadata': {
+                                'title': entry.title, 
+                                'path': entry.path,
+                                'source_zim': source
+                            },
+                            'score': 1.0
+                        }
+                        debug_print(f"      Added hit: {entry.title}")
+                except Exception as inner_e:
+                    debug_print(f"      Error processing hit {hit_path}: {inner_e}")
+                    continue
+        except Exception as e:
+            debug_print(f"    _collect_hits top-level error: {e}")
 
 if __name__ == "__main__":
     pass

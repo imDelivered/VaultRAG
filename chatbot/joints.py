@@ -76,12 +76,12 @@ def extract_json_from_text(text: str) -> Any:
     raise ValueError("No valid JSON found in response")
 
 
-def local_inference(model: str, prompt: str, temperature: float = 0.0, timeout: int = 5) -> str:
     """
     Run local inference using ModelManager.
     """
     try:
-        llm = ModelManager.get_model(model, n_ctx=8192)  # Shared instance
+        # Reduced context to prevent OOM
+        llm = ModelManager.get_model(model, n_ctx=4096)  # Shared instance
         
         # Use chat completion for instruction-tuned models
         response = llm.create_chat_completion(
@@ -123,19 +123,22 @@ class EntityExtractorJoint:
         debug_print("JOINT1:ENTITY", f"Extracting entities from: '{query}'")
         start_time = time.time()
         
-        prompt = f"""You are a multi-entity extraction system.
+        prompt = f"""You are a precise entity extraction system.
 
     INSTRUCTIONS:
     1. Identify ALL distinct entities (people, places, things, events) in the query.
     2. CHECK FOR COMPARISONS: If the user compares items (e.g. "vs", "compare", "difference", "and"), set "is_comparison": true.
-    3. EXTRACT ALIASES:
-       - Aliases must be SYNONYMS (e.g. "Biggie" -> "The Notorious B.I.G.").
-       - DO NOT list related people/rivals/family as aliases.
-       - Example: "Tupac" and "Biggie" are DIFFERENT. Do not list one as alias of other.
+    3. EXTRACT ALIASES: Aliases must be exact synonyms. Do not list related but different people.
 
     Query: "{query}"
 
-    Return ONLY valid JSON with this exact structure:
+    CRITICAL RULES:
+    - Return ONLY valid JSON.
+    - NO Markdown code blocks (do not use ```json).
+    - NO conversational filler (e.g., "Here is the JSON").
+    - RAW JSON STRING ONLY.
+
+    Return this exact JSON structure:
     {{
       "is_comparison": true,
       "entities": [
