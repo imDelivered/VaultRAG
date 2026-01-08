@@ -1,105 +1,191 @@
-# Hermit
+# Hermit — Offline AI Chatbot for Wikipedia & ZIM Files
 
-A powerful offline-capable chatbot with **Retrieval-Augmented Generation (RAG)** that lets you chat with AI using local knowledge bases like Wikipedia, Python documentation, or any ZIM file archive.
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8+-green.svg)](https://www.python.org/)
+[![CUDA Accelerated](https://img.shields.io/badge/CUDA-Accelerated-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 
-> **Note:** This project runs entirely locally using `llama-cpp-python` and GGUF models. No internet is required after initial setup.
+> 🧠 **A privacy-first, offline AI chatbot** powered by local LLMs and Retrieval-Augmented Generation (RAG). Chat with Wikipedia, documentation, or any ZIM archive — completely offline, 100% private.
+
+**No cloud. No API keys. No data leaves your machine.**
 
 ---
 
-## Quick Setup
+## ✨ Key Features
+
+| Feature | Description |
+|---------|-------------|
+| 🔒 **100% Offline** | Runs entirely on your local machine after initial setup |
+| 🧠 **Local LLM** | Uses GGUF models via `llama-cpp-python` — no OpenAI needed |
+| 📚 **Wikipedia RAG** | Chat with offline Wikipedia using [Kiwix ZIM files](https://library.kiwix.org/) |
+| ⚡ **GPU Accelerated** | CUDA support for fast inference on NVIDIA GPUs |
+| 🎯 **Multi-Joint Architecture** | Unique 3-stage reasoning pipeline for accurate answers |
+| 🔍 **Hybrid Search** | Combines keyword (BM25) + semantic (FAISS) retrieval |
+| 🛡️ **Privacy First** | Your data never leaves your computer |
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ • Linux (tested on Ubuntu/Debian)                                           │
-│ • NVIDIA GPU (Recommended) - RTX 3060 or better for optimal speed           │
-│ • 12GB+ RAM (System) + 8GB+ VRAM (GPU)                                      │
-│ • Python 3.8+                                                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+- **OS**: Linux (Ubuntu/Debian tested)
+- **GPU**: NVIDIA RTX 3060+ recommended (8GB+ VRAM)
+- **RAM**: 12GB+ system memory
+- **Python**: 3.8+
 
 ### Installation
 
-**Step 1: Run the setup script**
 ```bash
+# Clone the repository
+git clone https://github.com/imDelivered/Hermit-AI.git
+cd Hermit-AI
+
+# Run the setup script
 chmod +x setup.sh
 ./setup.sh
 ```
 
-> **What the setup script does:**
-> - Installs system dependencies (Python, libzim)
-> - Sets up a virtual environment
-> - Installs PyTorch with CUDA support (for GPU acceleration)
-> - Installs `llama-cpp-python` for local GGUF inference
-> - Creates a `hermit` command system-wide
+> **What setup.sh does:**
+> - Installs system dependencies (Python, libzim, CUDA toolkit)
+> - Creates an isolated virtual environment
+> - Installs PyTorch with CUDA 12.1 support
+> - Compiles `llama-cpp-python` with GPU acceleration
+> - Creates the `hermit` command system-wide
 
-**Step 2: Add Models and Data**
-- **Models**: The system will automatically download the required GGUF model (Aletheia 3B) to the `shared_models/` directory on first run.
-- **Data (ZIM)**: Download a ZIM file (e.g., from [Kiwix](https://library.kiwix.org/)) and place it in the project root. (e.g., `wikipedia_en_all_maxi_2025-08.zim`).
+### Add Your Knowledge Base
 
-**Step 3: Start the chatbot**
+Download a ZIM file from [Kiwix Library](https://library.kiwix.org/) and place it in the project root:
+
 ```bash
-hermit
+# Example: Download Wikipedia
+wget https://download.kiwix.org/zim/wikipedia_en_all_maxi.zim
 ```
 
-### Uninstallation
+### Launch Hermit
 
-To remove the application, use the included GUI uninstaller:
+```bash
+hermit              # Start the GUI
+hermit --cli        # Start in terminal mode
+hermit --debug      # Start with verbose logging
+```
+
+---
+
+## 🏗️ How It Works — Multi-Joint RAG Architecture
+
+Hermit uses a unique **Multi-Joint Architecture** that chains specialized reasoning stages:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  User Query: "How did the Roman Empire fall?"                       │
+├─────────────────────────────────────────────────────────────────────┤
+│  [Joint 1] Entity Extraction                                        │
+│     → Extracts: "Roman Empire", "fall", "decline"                  │
+├─────────────────────────────────────────────────────────────────────┤
+│  [Retrieval] Hybrid Search (BM25 + FAISS)                           │
+│     → Finds 15 candidate articles from ZIM file                    │
+├─────────────────────────────────────────────────────────────────────┤
+│  [Joint 2] Article Scoring                                          │
+│     → Scores articles 0-10, selects top 5                          │
+├─────────────────────────────────────────────────────────────────────┤
+│  [Joint 3] Chunk Filtering                                          │
+│     → Extracts most relevant paragraphs                            │
+├─────────────────────────────────────────────────────────────────────┤
+│  [Generation] Final Answer                                          │
+│     → LLM synthesizes answer from verified facts                   │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Why Multi-Joint?**
+- ✅ Reduces hallucinations by grounding in retrieved facts
+- ✅ Uses specialized small models for each reasoning step
+- ✅ GBNF grammar enforcement ensures valid JSON at every stage
+- ✅ Just-in-time indexing — no pre-processing wait
+
+---
+
+## ⚙️ Configuration
+
+### Models
+
+Edit `chatbot/config.py` to customize:
+
+```python
+# Default model (auto-downloads from Hugging Face)
+DEFAULT_MODEL = "Ishaanlol/Aletheia-Llama-3.2-3B"
+
+# Joint models (entity extraction, scoring, filtering)
+ENTITY_JOINT_MODEL = DEFAULT_MODEL
+SCORER_JOINT_MODEL = DEFAULT_MODEL
+FILTER_JOINT_MODEL = DEFAULT_MODEL
+
+# Context window size
+DEFAULT_CONTEXT_SIZE = 16384
+```
+
+### Supported Models
+
+Any GGUF model from Hugging Face works. Recommended:
+- **Aletheia 3B** (default) — Fast, accurate
+- **Llama 3.2 3B** — Great reasoning
+- **Mistral 7B** — More capable, needs 12GB+ VRAM
+
+---
+
+## 🛠️ Troubleshooting
+
+### "Failed to create llama_context" (Out of Memory)
+Your GPU ran out of VRAM. Solutions:
+1. Close other GPU applications
+2. Use a smaller model
+3. Reduce `DEFAULT_CONTEXT_SIZE` in config
+
+### "CUDA not available"
+If Hermit uses CPU instead of GPU:
+1. Ensure NVIDIA drivers are installed: `nvidia-smi`
+2. Re-run `./setup.sh` to reinstall PyTorch with CUDA
+
+### "Dependencies missing"
+```bash
+./setup.sh  # Re-run to fix broken packages
+```
+
+---
+
+## 🗑️ Uninstallation
+
 ```bash
 ./uninstall.sh
 ```
-This tool allows you to safely remove the virtual environment, models, and cache **while strictly protecting your ZIM files**.
+
+The GUI uninstaller lets you selectively remove:
+- ✅ Virtual environment
+- ✅ Downloaded models
+- ✅ Search indexes
+- 🛡️ **Your ZIM files are always protected**
 
 ---
 
-## Features
+## 🤝 Contributing
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ • Local AI: Runs GGUF models (Aletheia 3B) locally                          │
-│ • RAG: Retrieves facts from ZIM files                                       │
-│ • Multi-Joint Architecture: Uses specialized small models for reasoning     │
-│ • Just-In-Time Indexing: No long pre-indexing wait; indexes on-the-fly      │
-│ • GPU Accelerated: Uses NVIDIA GPU for both Embeddings and LLM Generation   │
-│ • Privacy Focused: 100% Offline (after setup)                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-## How It Works
-
-Hermit uses a **Local Multi-Joint Architecture**:
-
-1.  **Joint 1 (Entity extraction)**: Analyzes your query to find key terms.
-2.  **Retrieval**: Searches the ZIM file using a hybrid of Keyword (BM25-like) and Semantic (Embeddings) search.
-3.  **Joint 2 (Scoring)**: Reads candidate articles and scores them for relevance.
-4.  **Joint 3 (Filtering)**: Extracts the exact paragraphs containing the answer.
-5.  **Generation**: The main Chat Model (Aletheia 3B) synthesizes the answer from the retrieved facts.
-
-**VRAM Optimization**: To run on consumer GPUs (e.g. 12GB VRAM), the system intelligently loads and unloads models as needed to prevent Out-Of-Memory errors.
-
-## Configuration
-
-### Models
-Models are defined in `chatbot/config.py`.
-- **Default Chat Model**: `Ishaanlol/.../Aletheia-3B`
-- **RAG/Joint Model**: `Ishaanlol/.../Aletheia-3B`
-
-You can change these to any Hugging Face repo ID containing GGUF files.
-
-## Troubleshooting
-
-### "Failed to create llama_context" (OOM)
-This means you ran out of VRAM. The system now has a protections against this, but if you see it, ensure no other GPU-heavy apps are running.
-
-### "CUDA not available"
-If `hermit` says it's using CPU:
-1.  Ensure you have NVIDIA drivers installed.
-2.  Re-run `./setup.sh` to reinstall PyTorch.
-
-### "Dependencies missing"
-Run `./setup.sh` again to fix any broken python packages.
+Contributions welcome! Please read the codebase and open a PR.
 
 ---
 
-**License**: This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)** - see the [LICENSE](LICENSE) file for details.
+## 📜 License
+
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+See [LICENSE](LICENSE) for details.
+
+---
+
+## ⭐ Star History
+
+If you find Hermit useful, please give it a star! It helps others discover the project.
+
+---
+
+<p align="center">
+  <b>Hermit</b> — Your offline AI companion 🧙‍♂️
+</p>
