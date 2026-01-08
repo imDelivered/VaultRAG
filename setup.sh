@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== VaultRAG Setup Script ==="
+echo "=== Hermit Setup Script ==="
 echo "Sets up the local AI environment with GPU support."
 echo ""
 
@@ -71,17 +71,17 @@ mkdir -p "$SHARED_MODELS"
 echo "✓ Model directory verified: $SHARED_MODELS"
 echo "  (Models will be automatically downloaded here on first run)"
 
-# Enable 'vrag' command
+# Enable 'hermit' command
 echo ""
-echo "Setting up 'vrag' command..."
-VRAG_WRAPPER="/usr/local/bin/vrag"
-sudo tee "$VRAG_WRAPPER" > /dev/null << VRAG_EOF
+echo "Setting up 'hermit' command..."
+HERMIT_WRAPPER="/usr/local/bin/hermit"
+sudo tee "$HERMIT_WRAPPER" > /dev/null << HERMIT_EOF
 #!/usr/bin/env bash
 INSTALL_DIR="$SCRIPT_DIR"
 
 # Check if directory exists and give helpful error if not (common with external drives)
 if [ ! -d "\$INSTALL_DIR" ]; then
-    echo "❌ Error: VaultRAG installation directory not found at:"
+    echo "❌ Error: Hermit installation directory not found at:"
     echo "   \$INSTALL_DIR"
     echo ""
     echo "👉 If this is on an external drive, please ensure it is MOUNTED."
@@ -98,10 +98,10 @@ else
     echo "   The installation might be corrupted. Try re-running setup.sh"
     exit 1
 fi
-VRAG_EOF
-sudo chmod +x "$VRAG_WRAPPER"
-echo "✓ 'vrag' command installed"
+HERMIT_EOF
+sudo chmod +x "$HERMIT_WRAPPER"
+echo "✓ 'hermit' command installed"
 
 echo ""
 echo "=== Setup Complete! ==="
-echo "Run the chatbot with: vrag"
+echo "Run the chatbot with: hermit"

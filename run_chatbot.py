@@ -16,7 +16,7 @@ from chatbot import ChatbotGUI
 from chatbot.config import DEFAULT_MODEL, DEBUG
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="KiwixRAG Chatbot")
+    parser = argparse.ArgumentParser(description="Hermit Chatbot")
     parser.add_argument("--debug", action="store_true", help="Enable detailed debug output")
     parser.add_argument("--cli", action="store_true", help="Run in command-line interface mode")
     parser.add_argument("model", nargs="?", default=DEFAULT_MODEL, help="Ollama model to use")

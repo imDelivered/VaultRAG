@@ -1,4 +1,4 @@
-# Core Dependencies for KiwixRAG
+# Core Dependencies for Hermit
 # Note: PyTorch (GPU) is handled by setup.sh
 
 # Embeddings & RAG

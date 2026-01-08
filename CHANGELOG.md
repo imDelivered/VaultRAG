@@ -19,9 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **JSON Parsing Reliability**: Refactored `local_inference()` in `joints.py` to use GBNF grammar constraints. All Joint classes now use `use_json_grammar=True` for reliable structured output.
 
 ### Changed
-- **Project Rename**: Renamed project from "KiwixRAG" to "**VaultRAG**" to better reflect its function as a secure, offline knowledge vault.
+- **Project Rename**: Renamed project from "VaultRAG" to "**Hermit**" - a wise, solitary AI that knows everything but requires no internet.
 - **License**: Switched from MIT License to **AGPL v3** to ensure the project remains free and open-source, preventing proprietary closed-source forks.
-- **Command**: Renamed the system command from `krag` to `vrag`.
+- **Command**: Renamed the system command from `vrag` to `hermit`.
 
 ## [2.2.0] - 2026-01-07
 
@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Auto-dismisses when complete
 
 ### Improved
-- **External Drive Detection**: The `krag` command now detects when the installation directory is on an unmounted external drive and provides helpful instructions.
+- **External Drive Detection**: The `hermit` command now detects when the installation directory is on an unmounted external drive and provides helpful instructions.
 - **Visible Errors**: Errors and warnings are now visible in the terminal by default (previously suppressed to `/dev/null`). Debug-level messages are still filtered in non-debug mode.
 - **Better Error Messages**: Installation errors now include actionable hints (e.g., "If you moved the installation, re-run setup.sh").
 
@@ -96,7 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - **Joint 2 (Article Scoring)**: Uses `qwen2.5:0.5b` to grade article relevance (0-10) before indexing.
     - **Joint 3 (Chunk Filtering)**: Uses `llama3.2:1b` to semantically filter retrieved chunks, ensuring only relevant facts reach the final answer.
 - **Robust Setup**: Updated `setup.sh` to explicitly handle all dependencies (`requests`, `ollama`) and pull all required joint models automatically.
-- **Enhanced Debugging**: `krag --debug` now provides color-coded, real-time tracing of all three joints and the retrieval process.
+- **Enhanced Debugging**: `hermit --debug` now provides color-coded, real-time tracing of all three joints and the retrieval process.
 
 ### Changed
 - **Default Models**: Switched default generation model to `llama3.2:1b` for better reasoning and speed.
@@ -124,6 +124,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2025-12-05
 ### Added
-- **Initial release of VaultRAG (prev. KiwixRAG).**
+- **Initial release of Hermit (prev. VaultRAG, KiwixRAG).**
 - **Offline RAG system using FAISS and LanceDB/LibZIM.**
 - **Basic GUI with Tkinter.**

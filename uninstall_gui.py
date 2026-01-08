@@ -9,7 +9,7 @@ from pathlib import Path
 class UninstallerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("VaultRAG Uninstaller")
+        self.root.title("Hermit Uninstaller")
         self.root.geometry("500x450")
         
         # Style
@@ -18,7 +18,7 @@ class UninstallerGUI:
         style.configure("Warning.TLabel", foreground="red")
         
         # Header
-        header = ttk.Label(root, text="VaultRAG Cleanup Tool", font=("Helvetica", 16, "bold"))
+        header = ttk.Label(root, text="Hermit Cleanup Tool", font=("Helvetica", 16, "bold"))
         header.pack(pady=10)
         
         ttk.Label(root, text="Select components to remove:", style="Bold.TLabel").pack(anchor="w", padx=20)
@@ -28,7 +28,7 @@ class UninstallerGUI:
             "venv": tk.BooleanVar(value=True),
             "models": tk.BooleanVar(value=False),
             "data": tk.BooleanVar(value=True),
-            "vrag": tk.BooleanVar(value=False)
+            "hermit": tk.BooleanVar(value=False)
         }
         
         # Paths
@@ -37,7 +37,7 @@ class UninstallerGUI:
             "venv": self.base_dir / "venv",
             "models": self.base_dir / "shared_models",
             "data": self.base_dir / "data",
-            "vrag": Path("/usr/local/bin/vrag")
+            "hermit": Path("/usr/local/bin/hermit")
         }
         
         # Components Frame
@@ -51,8 +51,8 @@ class UninstallerGUI:
                            "Removes downloaded GGUF models (Large files!).")
         self.create_checkbox("data", "Search Indexes (data/)", 
                            "Removes cached vectors and JIT indexes.")
-        self.create_checkbox("vrag", "System Command (vrag)", 
-                           "Removes the /usr/local/bin/vrag wrapper (Requires Sudo).")
+        self.create_checkbox("hermit", "System Command (hermit)", 
+                           "Removes the /usr/local/bin/hermit wrapper (Requires Sudo).")
         
         # Protection Note
         protection_frame = ttk.LabelFrame(root, text="🛡️ Safety Protection", padding=10)
@@ -143,7 +143,7 @@ class UninstallerGUI:
                 if not path.exists():
                     continue
                     
-                if key == "vrag":
+                if key == "hermit":
                     # Requires sudo
                     self.run_sudo_remove(path)
                 elif path.is_dir():

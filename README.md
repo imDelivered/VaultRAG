@@ -1,4 +1,4 @@
-# VaultRAG
+# Hermit
 
 A powerful offline-capable chatbot with **Retrieval-Augmented Generation (RAG)** that lets you chat with AI using local knowledge bases like Wikipedia, Python documentation, or any ZIM file archive.
 
@@ -32,7 +32,7 @@ chmod +x setup.sh
 > - Sets up a virtual environment
 > - Installs PyTorch with CUDA support (for GPU acceleration)
 > - Installs `llama-cpp-python` for local GGUF inference
-> - Creates a `krag` command system-wide
+> - Creates a `hermit` command system-wide
 
 **Step 2: Add Models and Data**
 - **Models**: The system will automatically download the required GGUF model (Aletheia 3B) to the `shared_models/` directory on first run.
@@ -40,7 +40,7 @@ chmod +x setup.sh
 
 **Step 3: Start the chatbot**
 ```bash
-vrag
+hermit
 ```
 
 ### Uninstallation
@@ -68,7 +68,7 @@ This tool allows you to safely remove the virtual environment, models, and cache
 
 ## How It Works
 
-VaultRAG uses a **Local Multi-Joint Architecture**:
+Hermit uses a **Local Multi-Joint Architecture**:
 
 1.  **Joint 1 (Entity extraction)**: Analyzes your query to find key terms.
 2.  **Retrieval**: Searches the ZIM file using a hybrid of Keyword (BM25-like) and Semantic (Embeddings) search.
@@ -93,7 +93,7 @@ You can change these to any Hugging Face repo ID containing GGUF files.
 This means you ran out of VRAM. The system now has a protections against this, but if you see it, ensure no other GPU-heavy apps are running.
 
 ### "CUDA not available"
-If `vrag` says it's using CPU:
+If `hermit` says it's using CPU:
 1.  Ensure you have NVIDIA drivers installed.
 2.  Re-run `./setup.sh` to reinstall PyTorch.
 

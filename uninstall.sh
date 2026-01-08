@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== VaultRAG Uninstaller ==="
+echo "=== Hermit Uninstaller ==="
 
 # Check for Python 3
 if ! command -v python3 &> /dev/null; then

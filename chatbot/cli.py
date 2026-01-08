@@ -8,10 +8,10 @@ from chatbot.rag import RAGSystem, TextProcessor
 from chatbot import config
 
 class ChatbotCLI(cmd.Cmd):
-    """Command-line interface for KiwixRAG."""
+    """Command-line interface for Hermit."""
     
-    intro = 'Welcome to KiwixRAG CLI. Type help or ? to list commands.\n'
-    prompt = '(krag) '
+    intro = 'Welcome to Hermit CLI. Type help or ? to list commands.\n'
+    prompt = '(hermit) '
     
     def __init__(self, model_name: str):
         super().__init__()
