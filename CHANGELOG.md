@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+
+## [2.4.0] - 2026-01-08
+
+### Added
+- **Forge ZIM Creator**: A powerful new tool (`forge`) to create custom ZIM knowledge bases from local documents.
+  - Supports **PDF, DOCX, EPUB, Markdown, HTML, and TXT** formats.
+  - Includes both a modern **GUI** and a command-line interface.
+  - Automatically generates an index page and handles HTML conversion.
+  - Integrated into `setup.sh` and `uninstall_gui.py` for seamless management.
+
+### Fixed
+- **Download Dialog Flash**: Fixed a UI glitch where the model download dialog flashed unnecessarily when models were already cached. The system now silently uses the cache without disturbing the user.
+- **LibZIM Integration**: Fixed `RuntimeError` in Forge caused by incorrect API ordering when configuring the ZIM Creator.
+
+### SEO & Branding
+- **Optimized Repository**: Renamed and optimized `README.md` with high-value keywords and a professional, emoji-free design.
+- **Enhanced Documentation**: Added comprehensive Multi-Joint RAG architecture diagram and feature tables.
+
 ## [2.3.0] - 2026-01-08
 
 ### Added
