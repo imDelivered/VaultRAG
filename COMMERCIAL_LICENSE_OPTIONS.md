@@ -23,10 +23,6 @@ For most researchers, hobbyists, and open-source developers, the AGPL v3 is perf
 
 3. **Legal Certainty**: Commercial licenses come with assurances and direct contractual relationships with Hermit-AI, Inc., simplifying procurement and compliance for large organizations.
 
-## In-Q-Tel / Government Agencies
-
-We offer specific licensing terms tailored for U.S. Government and Intelligence Community requirements, ensuring you can leverage state-of-the-art offline AI while fully complying with operational security protocols.
-
 ## Contact Us
 
 For commercial inquiries, custom development, or licensing questions, please contact:
