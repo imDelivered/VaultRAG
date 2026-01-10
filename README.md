@@ -77,7 +77,7 @@ instead of just doing a basic vector search, hermit chains a few small models to
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-this adds about 1 second of latency but makes the answers way more reliable.
+this adds latency but makes the answers way more reliable.
 
 ---
 
