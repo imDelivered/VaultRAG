@@ -9,7 +9,6 @@
 ---
 <img width="895" height="697" alt="hermit screenshot" src="https://github.com/user-attachments/assets/a60de92a-38cf-42a8-bd31-ca96429d5bf5" />
 
-*chatting with offline wikipedia*
 
 ### why?
 i wanted a way to search massive knowledge bases like wikipedia without needing an internet connection. hermit uses a "multi-joint" rag setup to make sure it actually reads the articles before answering, which cuts down on hallucinations a lot.
