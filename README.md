@@ -11,8 +11,7 @@
 
 
 ### why?
-i wanted a way to search massive knowledge bases like wikipedia without needing an internet connection. hermit uses a "multi-joint" rag setup to make sure it actually reads the articles before answering, which cuts down on hallucinations a lot.
-
+i wanted a way to search massive knowledge bases like wikipedia without needing an internet connection. hermit uses a "multi-joint" rag setup to make sure it actually reads the articles before answering, which cuts down on hallucinations.
 ### features
 - **100% local**: runs via `llama-cpp-python` — you don't even need ollama installed.
 - **wikipedia rag**: search and chat with any [kiwix zim file](https://library.kiwix.org/).
