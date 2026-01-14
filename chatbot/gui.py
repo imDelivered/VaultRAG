@@ -587,6 +587,17 @@ class ChatbotGUI:
             
             for file_path in gguf_files:
                 filename = os.path.basename(file_path)
+                
+                # Filter out non-primary shards of split models
+                # Only show: single-file models OR the first shard (-00001-of-XXXXX)
+                import re
+                shard_match = re.search(r'-(\d{5})-of-(\d{5})\.gguf$', filename)
+                if shard_match:
+                    shard_num = shard_match.group(1)
+                    if shard_num != "00001":
+                        # Skip non-primary shards (00002, 00003, etc.)
+                        continue
+                
                 # Avoid duplicates if they match the config model exactly
                 # (Config model usually is a repo_id, filename is, well, a filename)
                 
