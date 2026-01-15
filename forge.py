@@ -426,9 +426,9 @@ class ZIMCreator:
 # =============================================================================
 
 class ForgeGUI:
-    """Tkinter GUI for Forge ZIM creator."""
+    """Streamlined Tkinter GUI for Forge ZIM creator."""
     
-    def __init__(self):
+    def __init__(self, parent=None):
         try:
             import tkinter as tk
             from tkinter import ttk, filedialog, messagebox, scrolledtext
@@ -441,92 +441,107 @@ class ForgeGUI:
         self.messagebox = messagebox
         self.scrolledtext = scrolledtext
         
-        self.root = tk.Tk()
+        if parent:
+            self.root = tk.Toplevel(parent)
+            self.root.transient(parent)
+            self.root.grab_set()
+        else:
+            self.root = tk.Tk()
+            
         self.root.title("Hermit Forge - ZIM Creator")
-        self.root.geometry("700x600")
+        self.root.geometry("600x650")
         
-        # File list
-        self.files: List[str] = []
+        # Selected folder path
+        self.selected_folder: Optional[str] = None
         
         self._setup_ui()
     
     def _setup_ui(self):
-        """Setup the GUI components."""
+        """Setup the streamlined GUI components."""
         tk = self.tk
         ttk = self.ttk
         
         # Title
         title_frame = ttk.Frame(self.root)
-        title_frame.pack(fill=tk.X, padx=20, pady=10)
+        title_frame.pack(fill=tk.X, padx=30, pady=20)
         
-        ttk.Label(title_frame, text="🔨 Hermit Forge", font=("Helvetica", 20, "bold")).pack(side=tk.LEFT)
-        ttk.Label(title_frame, text="Create ZIM knowledge bases", font=("Helvetica", 10)).pack(side=tk.LEFT, padx=10)
+        ttk.Label(title_frame, text="🔨 Hermit Forge", font=("Helvetica", 24, "bold")).pack()
+        ttk.Label(title_frame, text="Turn your documents into a searchable knowledge base", 
+                  font=("Helvetica", 11), foreground="gray").pack(pady=5)
         
-        # Settings Frame
-        settings_frame = ttk.LabelFrame(self.root, text="Settings", padding=10)
-        settings_frame.pack(fill=tk.X, padx=20, pady=5)
+        # Main instruction
+        instruction_frame = ttk.Frame(self.root)
+        instruction_frame.pack(fill=tk.X, padx=30, pady=10)
+        
+        ttk.Label(instruction_frame, 
+                  text="Select a folder containing your documents (PDF, TXT, MD, DOCX, HTML, EPUB)",
+                  font=("Helvetica", 10), wraplength=500).pack()
+        
+        # Folder selection (BIG button)
+        folder_frame = ttk.Frame(self.root)
+        folder_frame.pack(fill=tk.X, padx=30, pady=15)
+        
+        self.folder_btn = ttk.Button(
+            folder_frame, 
+            text="📁 Select Folder", 
+            command=self._select_folder,
+            width=30
+        )
+        self.folder_btn.pack()
+        
+        # Selected folder display
+        self.folder_label = ttk.Label(
+            folder_frame, 
+            text="No folder selected", 
+            font=("Helvetica", 9), 
+            foreground="gray"
+        )
+        self.folder_label.pack(pady=5)
+        
+        # Preview stats
+        self.stats_label = ttk.Label(
+            folder_frame,
+            text="",
+            font=("Helvetica", 9),
+            foreground="#0066cc"
+        )
+        self.stats_label.pack()
+        
+        # Settings Frame (auto-populated)
+        settings_frame = ttk.LabelFrame(self.root, text="ZIM Settings", padding=15)
+        settings_frame.pack(fill=tk.X, padx=30, pady=10)
         
         # ZIM Title
-        ttk.Label(settings_frame, text="Knowledge Base Title:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(settings_frame, text="Title:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.title_var = tk.StringVar(value="My Knowledge Base")
-        ttk.Entry(settings_frame, textvariable=self.title_var, width=40).grid(row=0, column=1, padx=5)
+        ttk.Entry(settings_frame, textvariable=self.title_var, width=45).grid(row=0, column=1, padx=10, sticky=tk.W+tk.E)
         
-        # Output path
-        ttk.Label(settings_frame, text="Output File:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.output_var = tk.StringVar(value="knowledge.zim")
-        ttk.Entry(settings_frame, textvariable=self.output_var, width=40).grid(row=1, column=1, padx=5)
-        ttk.Button(settings_frame, text="Browse...", command=self._browse_output).grid(row=1, column=2)
+        # Output location (auto-generated, editable)
+        ttk.Label(settings_frame, text="Output:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.output_var = tk.StringVar(value="")
+        output_entry = ttk.Entry(settings_frame, textvariable=self.output_var, width=45, state='readonly')
+        output_entry.grid(row=1, column=1, padx=10, sticky=tk.W+tk.E)
         
-        # Files Frame
-        files_frame = ttk.LabelFrame(self.root, text="Source Documents", padding=10)
-        files_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=5)
-        
-        # File list
-        list_frame = ttk.Frame(files_frame)
-        list_frame.pack(fill=tk.BOTH, expand=True)
-        
-        scrollbar = ttk.Scrollbar(list_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        self.file_listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, height=12)
-        self.file_listbox.pack(fill=tk.BOTH, expand=True)
-        scrollbar.config(command=self.file_listbox.yview)
-        
-        # File buttons
-        btn_frame = ttk.Frame(files_frame)
-        btn_frame.pack(fill=tk.X, pady=5)
-        
-        ttk.Button(btn_frame, text="📄 Add Files", command=self._add_files).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="📁 Add Folder", command=self._add_folder).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="❌ Remove Selected", command=self._remove_selected).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_frame, text="🗑️ Clear All", command=self._clear_all).pack(side=tk.LEFT, padx=2)
-        
-        # Supported formats label
-        formats_text = "Supported: TXT, MD, PDF*, DOCX*, HTML, EPUB*"
-        if not PARSERS_AVAILABLE['pdf']:
-            formats_text += "\n* PDF requires: pip install pypdf"
-        if not PARSERS_AVAILABLE['docx']:
-            formats_text += "\n* DOCX requires: pip install python-docx"
-        if not PARSERS_AVAILABLE['epub']:
-            formats_text += "\n* EPUB requires: pip install ebooklib"
-        
-        ttk.Label(files_frame, text=formats_text, font=("Helvetica", 9), foreground="gray").pack(anchor=tk.W)
+        settings_frame.columnconfigure(1, weight=1)
         
         # Status/Log
-        log_frame = ttk.LabelFrame(self.root, text="Log", padding=5)
-        log_frame.pack(fill=tk.X, padx=20, pady=5)
+        log_frame = ttk.LabelFrame(self.root, text="Progress", padding=10)
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=30, pady=5)
         
-        self.log_text = self.scrolledtext.ScrolledText(log_frame, height=5, state=tk.DISABLED)
-        self.log_text.pack(fill=tk.X)
+        self.log_text = self.scrolledtext.ScrolledText(log_frame, height=6, state=tk.DISABLED, wrap=tk.WORD)
+        self.log_text.pack(fill=tk.BOTH, expand=True)
         
         # Create button
         action_frame = ttk.Frame(self.root)
-        action_frame.pack(fill=tk.X, padx=20, pady=10)
+        action_frame.pack(fill=tk.X, padx=30, pady=15)
         
-        self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(action_frame, textvariable=self.status_var, font=("Helvetica", 10)).pack(side=tk.LEFT)
-        
-        ttk.Button(action_frame, text="🔨 Create ZIM", command=self._create_zim).pack(side=tk.RIGHT)
+        self.create_btn = ttk.Button(
+            action_frame, 
+            text="🔨 Create ZIM File", 
+            command=self._create_zim,
+            state=tk.DISABLED
+        )
+        self.create_btn.pack(side=tk.RIGHT)
     
     def _log(self, message: str):
         """Add message to log."""
@@ -536,75 +551,102 @@ class ForgeGUI:
         self.log_text.config(state=self.tk.DISABLED)
         self.root.update_idletasks()
     
-    def _browse_output(self):
-        """Browse for output file location."""
-        path = self.filedialog.asksaveasfilename(
-            defaultextension=".zim",
-            filetypes=[("ZIM files", "*.zim"), ("All files", "*.*")]
-        )
-        if path:
-            self.output_var.set(path)
-    
-    def _add_files(self):
-        """Add individual files."""
-        files = self.filedialog.askopenfilenames(
-            filetypes=[
-                ("All supported", "*.txt *.md *.pdf *.docx *.html *.htm *.epub"),
-                ("Text files", "*.txt"),
-                ("Markdown", "*.md"),
-                ("PDF", "*.pdf"),
-                ("Word", "*.docx"),
-                ("HTML", "*.html *.htm"),
-                ("EPUB", "*.epub"),
-            ]
-        )
-        for f in files:
-            if f not in self.files:
-                self.files.append(f)
-                self.file_listbox.insert(self.tk.END, os.path.basename(f))
+    def _select_folder_native(self) -> Optional[str]:
+        """Use native system file picker instead of Tkinter dialog."""
+        import subprocess
+        import shutil
         
-        self._update_status()
+        # Try zenity first (GNOME, XFCE, most Linux distros)
+        if shutil.which('zenity'):
+            try:
+                result = subprocess.run(
+                    ['zenity', '--file-selection', '--directory', '--title=Select Folder with Documents'],
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                if result.returncode == 0:
+                    return result.stdout.strip()
+            except Exception:
+                pass
+        
+        # Try kdialog (KDE Plasma)
+        if shutil.which('kdialog'):
+            try:
+                result = subprocess.run(
+                    ['kdialog', '--getexistingdirectory', os.path.expanduser('~'), '--title', 'Select Folder with Documents'],
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                if result.returncode == 0:
+                    return result.stdout.strip()
+            except Exception:
+                pass
+        
+        # Fallback to Tkinter dialog if native pickers aren't available
+        return self.filedialog.askdirectory(title="Select Folder with Documents")
     
-    def _add_folder(self):
-        """Add all files from a folder."""
-        folder = self.filedialog.askdirectory()
-        if folder:
-            extensions = {'.txt', '.md', '.pdf', '.docx', '.html', '.htm', '.epub'}
-            count = 0
-            for root, _, files in os.walk(folder):
-                for file in files:
-                    if Path(file).suffix.lower() in extensions:
-                        full_path = os.path.join(root, file)
-                        if full_path not in self.files:
-                            self.files.append(full_path)
-                            self.file_listbox.insert(self.tk.END, file)
-                            count += 1
-            
-            self._log(f"Added {count} files from {folder}")
-            self._update_status()
+    def _select_folder(self):
+        """Open native OS file manager to select a folder."""
+        folder = self._select_folder_native()
+        
+        if not folder:
+            return
+        
+        self.selected_folder = folder
+        
+        # Update display
+        folder_name = os.path.basename(folder)
+        self.folder_label.config(text=f"📁 {folder}", foreground="black")
+        
+        # Auto-generate ZIM title from folder name
+        clean_name = folder_name.replace('_', ' ').replace('-', ' ').title()
+        self.title_var.set(clean_name)
+        
+        # Auto-generate ZIM output path (same directory as source)
+        output_path = os.path.join(folder, f"{folder_name}.zim")
+        self.output_var.set(output_path)
+        
+        # Scan folder for supported files
+        self._scan_folder(folder)
     
-    def _remove_selected(self):
-        """Remove selected files."""
-        selection = self.file_listbox.curselection()
-        for i in reversed(selection):
-            self.file_listbox.delete(i)
-            del self.files[i]
-        self._update_status()
-    
-    def _clear_all(self):
-        """Clear all files."""
-        self.files.clear()
-        self.file_listbox.delete(0, self.tk.END)
-        self._update_status()
-    
-    def _update_status(self):
-        """Update status label."""
-        self.status_var.set(f"{len(self.files)} files selected")
+    def _scan_folder(self, folder: str):
+        """Scan folder and show preview stats."""
+        extensions = {'.txt', '.md', '.pdf', '.docx', '.html', '.htm', '.epub'}
+        file_count = 0
+        total_size = 0
+        
+        for root, _, files in os.walk(folder):
+            for file in files:
+                if Path(file).suffix.lower() in extensions:
+                    file_count += 1
+                    full_path = os.path.join(root, file)
+                    try:
+                        total_size += os.path.getsize(full_path)
+                    except OSError:
+                        pass
+        
+        if file_count == 0:
+            self.stats_label.config(
+                text="⚠ No supported documents found in this folder",
+                foreground="orange"
+            )
+            self.create_btn.config(state=self.tk.DISABLED)
+            self._log(f"No supported files found in: {folder}")
+        else:
+            size_mb = total_size / (1024 * 1024)
+            self.stats_label.config(
+                text=f"✓ Found {file_count} documents (~{size_mb:.1f} MB)",
+                foreground="#00aa00"
+            )
+            self.create_btn.config(state=self.tk.NORMAL)
+            self._log(f"Ready to process {file_count} files from: {os.path.basename(folder)}")
     
     def _create_zim(self):
-        """Create the ZIM file."""
-        if not self.files:
-            self.messagebox.showwarning("No Files", "Please add some documents first.")
+        """Create the ZIM file from selected folder."""
+        if not self.selected_folder:
+            self.messagebox.showwarning("No Folder", "Please select a folder first.")
             return
         
         if not LIBZIM_AVAILABLE:
@@ -620,40 +662,135 @@ class ForgeGUI:
         output_path = self.output_var.get()
         title = self.title_var.get()
         
+        # Check if output already exists
+        if os.path.exists(output_path):
+            overwrite = self.messagebox.askyesno(
+                "File Exists",
+                f"The file already exists:\n{output_path}\n\nOverwrite it?"
+            )
+            if not overwrite:
+                return
+        
         try:
-            self.status_var.set("Creating ZIM...")
-            self._log(f"Creating: {output_path}")
+            self.create_btn.config(state=self.tk.DISABLED)
+            self._log(f"\n🔨 Creating ZIM file...")
+            self._log(f"Title: {title}")
+            self._log(f"Output: {output_path}")
+            self._log(f"Source: {self.selected_folder}\n")
             
             # Create ZIM
             creator = ZIMCreator(output_path, title)
             
-            for file_path in self.files:
-                doc = DocumentParser.parse_file(file_path)
-                if doc:
-                    creator.add_document(doc)
-                    self._log(f"✓ {os.path.basename(file_path)}")
-                else:
-                    self._log(f"✗ Failed: {os.path.basename(file_path)}")
+            # Manually process files to show progress in GUI
+            extensions = {'.txt', '.md', '.pdf', '.docx', '.html', '.htm', '.epub'}
+            processed = 0
+            failed = 0
             
+            folder_path = Path(self.selected_folder)
+            for file_path in folder_path.rglob('*'):
+                if file_path.suffix.lower() in extensions:
+                    self._log(f"Processing: {file_path.name}...")
+                    doc = DocumentParser.parse_file(str(file_path))
+                    if doc:
+                        creator.add_document(doc)
+                        processed += 1
+                    else:
+                        failed += 1
+                        self._log(f"  ⚠ Failed to parse or file too small: {file_path.name}")
+            
+            self._log(f"\n✓ Finished: {processed} documents added")
+            if failed > 0:
+                self._log(f"⚠ Details: {failed} files were skipped (likely image-based PDFs or empty files)\n")
+            
+            if processed == 0:
+                error_msg = "No documents could be processed.\n\n"
+                if not PARSERS_AVAILABLE['pdf']:
+                    error_msg += "PDF support is missing. Install with:\n  pip install pypdf\n\n"
+                if not PARSERS_AVAILABLE['docx']:
+                    error_msg += "DOCX support is missing. Install with:\n  pip install python-docx\n\n"
+                if not PARSERS_AVAILABLE['epub']:
+                    error_msg += "EPUB support is missing. Install with:\n  pip install ebooklib\n\n"
+                
+                self.messagebox.showerror(
+                    "Processing Failed",
+                    error_msg
+                )
+                self.create_btn.config(state=self.tk.NORMAL)
+                return
+            
+            # Create the ZIM file
+            self._log("Building ZIM file (this may take a moment)...")
             zim_path = creator.create()
             
             size_mb = os.path.getsize(zim_path) / (1024 * 1024)
-            self.status_var.set("Done!")
-            self._log(f"\n✅ Created: {zim_path} ({size_mb:.1f} MB)")
+            self._log(f"\n✅ SUCCESS!")
+            self._log(f"Created: {os.path.basename(zim_path)}")
+            self._log(f"Size: {size_mb:.1f} MB")
+            self._log(f"Documents: {processed}")
             
-            self.messagebox.showinfo(
+            # Auto-copy to Hermit directory
+            # __file__ is /media/dekko/space/Hermit-AI-main/forge.py
+            hermit_dir = os.path.dirname(os.path.abspath(__file__))
+            hermit_zim_path = os.path.join(hermit_dir, os.path.basename(zim_path))
+            
+            try:
+                import shutil
+                if hermit_zim_path != zim_path:  # Only copy if different locations
+                    shutil.copy2(zim_path, hermit_zim_path)
+                    self._log(f"\n📥 Auto-copied to: {hermit_dir}")
+                    final_path = hermit_zim_path
+                else:
+                    final_path = zim_path
+            except Exception as e:
+                self._log(f"⚠ Could not auto-copy to Hermit directory: {e}")
+                final_path = zim_path
+            
+            # Success dialog with options
+            result = self.messagebox.askyesnocancel(
                 "Success!",
                 f"ZIM file created successfully!\n\n"
-                f"File: {zim_path}\n"
-                f"Size: {size_mb:.1f} MB\n"
-                f"Documents: {len(creator.documents)}\n\n"
-                f"You can now use this with Hermit!"
+                f"📄 {os.path.basename(final_path)}\n"
+                f"📊 {size_mb:.1f} MB\n"
+                f"📚 {processed} documents\n\n"
+                f"✅ Ready to use with Hermit!\n\n"
+                f"Yes = Open Hermit now\n"
+                f"No = Open file location\n"
+                f"Cancel = Just close"
             )
             
+            if result is True:  # Yes - Launch Hermit
+                import subprocess
+                try:
+                    # Try to launch hermit command
+                    subprocess.Popen(['hermit'], start_new_session=True)
+                    self._log("\n🚀 Launched Hermit!")
+                    self.root.after(1000, self.root.destroy)  # Close Forge after 1 sec
+                except Exception as e:
+                    # Fallback: try running from current directory
+                    try:
+                        subprocess.Popen([sys.executable, 'run_chatbot.py'], 
+                                       cwd=hermit_dir, start_new_session=True)
+                        self._log("\n🚀 Launched Hermit!")
+                        self.root.after(1000, self.root.destroy)
+                    except:
+                        self.messagebox.showerror("Launch Failed", 
+                            f"Could not launch Hermit automatically.\n\n"
+                            f"Run 'hermit' from terminal to use your new ZIM file.")
+            elif result is False:  # No - Open location
+                # Open file manager at the location
+                import subprocess
+                folder = os.path.dirname(output_path)
+                try:
+                    subprocess.run(['xdg-open', folder], check=False)
+                except:
+                    pass
+            
+            self.create_btn.config(state=self.tk.NORMAL)
+            
         except Exception as e:
-            self.status_var.set("Error!")
-            self._log(f"❌ Error: {e}")
+            self._log(f"\n❌ Error: {e}")
             self.messagebox.showerror("Error", str(e))
+            self.create_btn.config(state=self.tk.NORMAL)
     
     def run(self):
         """Start the GUI."""

@@ -1884,240 +1884,27 @@ Keyboard Shortcuts:
         self.messagebox.showinfo("System Status", msg)
 
     def show_forge_dialog(self):
-        """Show the Forge ZIM creator dialog with drag-and-drop support."""
-        import tkinter as tk
-        from tkinter import scrolledtext, filedialog, messagebox
+        """Show the unified Forge ZIM creator dialog."""
         import sys
         import os
         
-        # Import forge module components
         try:
+            # Ensure project root is in path
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             if project_root not in sys.path:
                 sys.path.insert(0, project_root)
-            from forge import DocumentParser, ZIMCreator, LIBZIM_AVAILABLE
-        except ImportError as e:
-            self.messagebox.showerror("Forge Unavailable", f"Could not load Forge:\n{e}")
-            return
-        
-        if not LIBZIM_AVAILABLE:
-            self.messagebox.showerror("Missing Dependency", "libzim not installed.\npip install libzim")
-            return
-        
-        # Try TkinterDnD - create completely standalone window
-        dnd_available = False
-        try:
-            from tkinterdnd2 import TkinterDnD, DND_FILES
-            root = TkinterDnD.Tk()
-            dnd_available = True
-        except ImportError:
-            root = tk.Tk()
-        
-        root.title("Hermit Forge")
-        root.geometry("550x450")
-        
-        # Position near main app
-        try:
-            root.geometry(f"+{self.root.winfo_x() + 50}+{self.root.winfo_y() + 50}")
-        except:
-            pass
-        
-        # Dark theme
-        bg = "#1E1E1E"
-        fg = "#E0E0E0"
-        accent = "#5865F2"
-        input_bg = "#2A2A2A"
-        btn_bg = "#333333"
-        
-        root.configure(bg=bg)
-        
-        # State
-        files_list = []
-        extensions = {'.txt', '.md', '.pdf', '.docx', '.html', '.htm', '.epub'}
-        
-        # --- UI ---
-        
-        # Title
-        tk.Label(root, text="Hermit Forge", font=("Arial", 18, "bold"), bg=bg, fg=fg).pack(pady=(15, 5))
-        
-        # Drop zone frame
-        drop_frame = tk.Frame(root, bg="#252525", highlightbackground="#444", highlightthickness=2)
-        drop_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
-        # Drop zone content (centered)
-        if dnd_available:
-            tk.Label(drop_frame, text="[+]", font=("Arial", 40), bg="#252525", fg=fg).pack(pady=(30, 5))
-            status_label = tk.Label(drop_frame, text="Drop files here or use buttons below", font=("Arial", 14), bg="#252525", fg=fg)
-        else:
-            tk.Label(drop_frame, text="[+]", font=("Arial", 40), bg="#252525", fg=fg).pack(pady=(30, 5))
-            status_label = tk.Label(drop_frame, text="Use buttons below to add files", font=("Arial", 14), bg="#252525", fg=fg)
-        status_label.pack()
-        count_label = tk.Label(drop_frame, text="", font=("Arial", 11, "bold"), bg="#252525", fg=accent)
-        count_label.pack(pady=(10, 20))
-        
-        def update_count():
-            if files_list:
-                count_label.config(text=f"{len(files_list)} files ready")
-                status_label.config(text="Drop more or click Accept")
-            else:
-                count_label.config(text="")
-                status_label.config(text="Drop files here")
-        
-        def add_path(path):
-            from pathlib import Path
-            p = Path(path)
-            added = 0
-            if p.is_file() and p.suffix.lower() in extensions:
-                if str(p) not in files_list:
-                    files_list.append(str(p))
-                    added = 1
-            elif p.is_dir():
-                for f in p.rglob("*"):
-                    if f.is_file() and f.suffix.lower() in extensions:
-                        if str(f) not in files_list:
-                            files_list.append(str(f))
-                            added += 1
-            return added
-        
-        def on_drop(event):
-            data = event.data
-            log_text.config(state=tk.NORMAL)
-            log_text.insert(tk.END, f"DEBUG: Drop event received\n")
-            log_text.insert(tk.END, f"DEBUG: Raw data = {repr(data)}\n")
-            log_text.config(state=tk.DISABLED)
             
-            # Parse paths (handle braces for paths with spaces)
-            if '{' in data:
-                import re
-                paths = re.findall(r'\{([^}]+)\}', data)
-                rest = re.sub(r'\{[^}]+\}', '', data).strip()
-                if rest:
-                    paths.extend(rest.split())
-            else:
-                paths = data.split()
+            # Import the unified ForgeGUI
+            from forge import ForgeGUI
             
-            log_text.config(state=tk.NORMAL)
-            log_text.insert(tk.END, f"DEBUG: Parsed {len(paths)} paths: {paths}\n")
-            log_text.config(state=tk.DISABLED)
+            # Launch as a child window
+            forge_app = ForgeGUI(parent=self.root)
+            # ForgeGUI handles its own event loop or we can just let it run
+            # Since it's a Toplevel, it will stay until closed.
             
-            total = 0
-            for p in paths:
-                added = add_path(p)
-                log_text.config(state=tk.NORMAL)
-                log_text.insert(tk.END, f"DEBUG: Path '{p}' -> added {added} files\n")
-                log_text.config(state=tk.DISABLED)
-                total += added
-            
-            update_count()
-            if total > 0:
-                log_text.config(state=tk.NORMAL)
-                log_text.insert(tk.END, f"SUCCESS: Dropped {total} files\n")
-                log_text.see(tk.END)
-                log_text.config(state=tk.DISABLED)
-            else:
-                log_text.config(state=tk.NORMAL)
-                log_text.insert(tk.END, f"WARNING: No valid files found in drop\n")
-                log_text.see(tk.END)
-                log_text.config(state=tk.DISABLED)
-        
-        # Register drag-drop on the root window
-        if dnd_available:
-            try:
-                root.drop_target_register(DND_FILES)
-                root.dnd_bind('<<Drop>>', on_drop)
-                log_text.config(state=tk.NORMAL)
-                log_text.insert(tk.END, "DEBUG: Drag-drop registered successfully\n")
-                log_text.config(state=tk.DISABLED)
-            except Exception as e:
-                dnd_available = False
-                log_text.config(state=tk.NORMAL)
-                log_text.insert(tk.END, f"DEBUG: Drag-drop registration failed: {e}\n")
-                log_text.config(state=tk.DISABLED)
-        
-        # Output filename
-        out_frame = tk.Frame(root, bg=bg)
-        out_frame.pack(fill=tk.X, padx=20, pady=5)
-        tk.Label(out_frame, text="Output:", bg=bg, fg=fg).pack(side=tk.LEFT)
-        out_var = tk.StringVar(value="knowledge.zim")
-        tk.Entry(out_frame, textvariable=out_var, bg=input_bg, fg=fg, insertbackground=fg, relief=tk.FLAT, width=25).pack(side=tk.LEFT, padx=5)
-        
-        # Button row
-        btn_frame = tk.Frame(root, bg=bg)
-        btn_frame.pack(fill=tk.X, padx=20, pady=5)
-        
-        def pick_files():
-            sel = filedialog.askopenfilenames(filetypes=[("Supported", "*.txt *.md *.pdf *.docx *.html *.epub")])
-            for f in sel:
-                add_path(f)
-            update_count()
-        
-        def pick_folder():
-            folder = filedialog.askdirectory()
-            if folder:
-                add_path(folder)
-                update_count()
-        
-        def clear_all():
-            files_list.clear()
-            update_count()
-        
-        tk.Button(btn_frame, text="Add Files", command=pick_files, bg=btn_bg, fg=fg, relief=tk.FLAT).pack(side=tk.LEFT, padx=2)
-        tk.Button(btn_frame, text="Add Folder", command=pick_folder, bg=btn_bg, fg=fg, relief=tk.FLAT).pack(side=tk.LEFT, padx=2)
-        tk.Button(btn_frame, text="Clear", command=clear_all, bg=btn_bg, fg=fg, relief=tk.FLAT).pack(side=tk.LEFT, padx=2)
-        
-        # Log
-        log_text = scrolledtext.ScrolledText(root, height=3, bg=input_bg, fg=fg, state=tk.DISABLED, font=("Consolas", 9))
-        log_text.pack(fill=tk.X, padx=20, pady=5)
-        
-        if dnd_available:
-            log_text.config(state=tk.NORMAL)
-            log_text.insert(tk.END, "Drag-drop ready! Drop files anywhere.\n")
-            log_text.config(state=tk.DISABLED)
-        else:
-            log_text.config(state=tk.NORMAL)
-            log_text.insert(tk.END, "Use buttons to add files.\n")
-            log_text.config(state=tk.DISABLED)
-        
-        # Action row
-        action_frame = tk.Frame(root, bg=bg)
-        action_frame.pack(fill=tk.X, padx=20, pady=(5, 15))
-        
-        def do_create():
-            if not files_list:
-                messagebox.showwarning("No Files", "Add files first!")
-                return
-            
-            out_path = out_var.get()
-            from pathlib import Path
-            title = Path(out_path).stem.replace("_", " ").title()
-            
-            log_text.config(state=tk.NORMAL)
-            log_text.insert(tk.END, f"Creating {out_path}...\n")
-            log_text.config(state=tk.DISABLED)
-            root.update()
-            
-            try:
-                creator = ZIMCreator(out_path, title)
-                for fp in files_list:
-                    doc = DocumentParser.parse_file(fp)
-                    if doc:
-                        creator.add_document(doc)
-                zim_path = creator.create()
-                size = os.path.getsize(zim_path) / (1024 * 1024)
-                
-                messagebox.showinfo("Done!", f"Created {os.path.basename(zim_path)}\n{len(creator.documents)} docs, {size:.1f} MB")
-                self.append_message("system", f"Forge: {os.path.basename(zim_path)} ({len(creator.documents)} docs)")
-                root.destroy()
-            except Exception as e:
-                messagebox.showerror("Error", str(e))
-        
-        tk.Button(action_frame, text="Cancel", command=root.destroy, bg=btn_bg, fg=fg, relief=tk.FLAT).pack(side=tk.LEFT)
-        tk.Button(action_frame, text="Accept & Create", command=do_create, bg=accent, fg="#FFF", font=("Arial", 11, "bold"), relief=tk.FLAT, padx=15, pady=5).pack(side=tk.RIGHT)
-        
-        root.bind("<Escape>", lambda e: root.destroy())
-        root.bind("<Return>", lambda e: do_create())
-        
-        root.mainloop()
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Forge Error", f"Could not launch Forge:\n{e}")
 
     def run(self):
         """Start the GUI."""
