@@ -50,5 +50,24 @@ class TextProcessor:
 
     @staticmethod
     def clean_text(text: str) -> str:
+        """Clean text by removing HTML tags, scripts, styles and normalizing whitespace."""
+        # Remove script and style blocks entirely
+        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        # Remove CSS comments
+        text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
+        # Remove inline CSS (mw-parser-output etc)
+        text = re.sub(r'\.mw-[^{]+\{[^}]+\}', '', text)
+        text = re.sub(r'@media[^{]+\{[^}]+\}', '', text)
+        # Strip all remaining HTML tags
+        text = re.sub(r'<[^>]+>', ' ', text)
+        # Remove common HTML entities
+        text = re.sub(r'&nbsp;', ' ', text)
+        text = re.sub(r'&amp;', '&', text)
+        text = re.sub(r'&lt;', '<', text)
+        text = re.sub(r'&gt;', '>', text)
+        text = re.sub(r'&quot;', '"', text)
+        text = re.sub(r'&#?\w+;', '', text)  # Any remaining entities
+        # Normalize whitespace
         text = re.sub(r'\s+', ' ', text)
         return text.strip()

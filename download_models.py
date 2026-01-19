@@ -13,8 +13,8 @@ def main():
     
     # Identify models from config
     models_to_download = [
-        config.MODEL_QWEN_1_5B, # Fast Joint Model
-        config.MODEL_QWEN_7B    # Smart/Reasoning Model
+        config.MODEL_QWEN_1_5B,  # Fast Joint Model
+        config.MODEL_NVIDIA_8B   # Smart/Default Model (Nemotron 8B)
     ]
 
     # De-duplicate

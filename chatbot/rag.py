@@ -21,7 +21,8 @@ try:
     from sentence_transformers import SentenceTransformer
     from rank_bm25 import BM25Okapi
 except ImportError:
-    print("Warning: RAG dependencies missing (faiss, sentence-transformers, rank_bm25). RAG will error.")
+    # Zero-Index mode doesn't strictly require these if we aren't using them
+    # but we keep imports for compatibility or future re-enablement
     faiss = None
     SentenceTransformer = None
     BM25Okapi = None
@@ -33,12 +34,37 @@ from chatbot.debug_utils import debug_print
 from chatbot.text_processing import TextProcessor
 
 class RAGSystem:
-    def __init__(self, index_dir: str = "data/indices", zim_path: str = None, load_existing: bool = True):
+    def __init__(self, index_dir: str = "data/indices", zim_path: str = None, zim_paths: List[str] = None, load_existing: bool = True):
         self.index_dir = index_dir
-        self.zim_path = zim_path
         self.encoder = None
         self.model_name = 'all-MiniLM-L6-v2'
-        self.zim_archive = None
+        
+        # === MULTI-ZIM SUPPORT ===
+        # Discover all ZIM files and maintain lazy-loaded archive cache
+        import glob
+        self.zim_paths: List[str] = []
+        self.zim_archives: Dict[str, any] = {}  # Lazy cache: {path: Archive}
+        
+        # Priority: explicit zim_paths > explicit zim_path > auto-discover
+        if zim_paths:
+            self.zim_paths = [os.path.abspath(p) for p in zim_paths]
+        elif zim_path:
+            self.zim_paths = [os.path.abspath(zim_path)]
+        else:
+            # Auto-discover all ZIM files in current directory
+            discovered = glob.glob("*.zim")
+            self.zim_paths = [os.path.abspath(p) for p in discovered]
+        
+        if self.zim_paths:
+            print(f"Multi-ZIM Mode: Found {len(self.zim_paths)} ZIM file(s)")
+            for zp in self.zim_paths:
+                print(f"  - {os.path.basename(zp)}")
+        else:
+            print("Warning: No ZIM files found.")
+        
+        # Legacy compatibility
+        self.zim_path = self.zim_paths[0] if self.zim_paths else None
+        self.zim_archive = None  # Deprecated, use get_zim_archive()
         
         # In-memory storage
         self.faiss_index = None # JIT Index (Vectors)
@@ -53,9 +79,9 @@ class RAGSystem:
         self.bm25 = None
         self.tokenized_corpus = [] # For BM25
         
-        # Title Indices (Pre-computed)
+        # Title Indices (Pre-computed, UNIFIED across all ZIMs)
         self.title_faiss_index = None
-        self.title_metadata = None
+        self.title_metadata = None  # List[{title, path, source_zim}]
         
         # Paths
         os.makedirs(index_dir, exist_ok=True)
@@ -69,43 +95,18 @@ class RAGSystem:
         # Initialize SentenceTransformer early (lazy load usually, but we need it for everything)
         try:
             # Move encoder to CPU to save VRAM for the main LLM.
+            # This encoder is still used for reranking or other semantic tasks, not for primary indexing in Zero-Index mode.
             self.encoder = SentenceTransformer(self.model_name, device="cpu")
         except Exception as e:
             print(f"Failed to load embedding model: {e}")
 
         # Multi-Joint System Configuration
         self.use_joints = config.USE_JOINTS
-        self.entity_joint = None
-        self.scorer_joint = None
-        self.filter_joint = None
-        self.fact_joint = None
+        # We will reuse the EntityExtractor logic but specifically prompt for TITLES
         
-        # Load Existing Content Indices
-        if load_existing and os.path.exists(self.faiss_path) and os.path.exists(self.meta_path):
-            print("Loading Content Indices...")
-            self.faiss_index = faiss.read_index(self.faiss_path)
-            if os.path.exists(self.bm25_path):
-                with open(self.bm25_path, 'rb') as f:
-                    self.bm25 = pickle.load(f)
-            with open(self.meta_path, 'rb') as f:
-                data = pickle.load(f)
-                self.documents = data['documents']
-                self.doc_chunks = data['chunks']
-                # Rebuild indexed set
-                self.indexed_paths = {doc.get('path') for doc in self.documents if doc.get('path') is not None}
-        else:
-            print("No existing content indices found.")
-
-        # Load Title Indices (Optional)
-        if os.path.exists(self.title_faiss_path) and os.path.exists(self.title_meta_path):
-            print("Loading Semantic Title Index...")
-            try:
-                self.title_faiss_index = faiss.read_index(self.title_faiss_path)
-                with open(self.title_meta_path, 'rb') as f:
-                    self.title_metadata = pickle.load(f)
-                print(f"Loaded {len(self.title_metadata)} titles.")
-            except Exception as e:
-                print(f"Failed to load title index: {e}")
+        # Load Existing Content Indices - DEPRECATED / DISABLED for Zero-Index Mode
+        # The whole point is to NOT need these.
+        print("Zero-Index Mode: Skipping index loading.")
         
         # Initialize Joint System (if enabled)
         if self.use_joints:
@@ -125,10 +126,128 @@ class RAGSystem:
                 debug_print("Falling back to semantic search")
                 self.use_joints = False
 
-    def build_index(self, zim_path: str, limit: int = None, batch_size: int = 1000):
+    def _generate_candidate_titles(self, query: str) -> List[str]:
         """
-        Build Semantic Title Index from ZIM file.
-        This is critical for 'search_by_title' to work effectively.
+        [ZERO-INDEX CORE]
+        Asks the LLM to generate valid Wikipedia/ZIM article titles.
+        Tries smart model first, falls back to fast model if loading fails.
+        """
+        from chatbot import config
+        from chatbot.model_manager import ModelManager
+        
+        # Try smart model first, fall back to fast model
+        llm = None
+        for model_name in [config.DEFAULT_MODEL, config.ENTITY_JOINT_MODEL]:
+            try:
+                llm = ModelManager.get_model(model_name)
+                if llm:
+                    break
+            except Exception as e:
+                debug_print(f"Model {model_name} failed: {e}")
+        
+        if not llm:
+            debug_print("All models failed, using heuristics only")
+            return [query.replace(" ", "_"), query.title().replace(" ", "_")]
+        
+        system_msg = (
+            "You are a Wikipedia title generator. Given a user question, output 3-6 exact Wikipedia article titles "
+            "that would contain the answer. Use underscores instead of spaces. Output one title per line, nothing else."
+        )
+        user_msg = f"Question: {query}"
+        
+        try:
+            response = llm.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": user_msg}
+                ],
+                max_tokens=120,
+                temperature=0.0  # Deterministic
+            )
+            raw_content = response['choices'][0]['message']['content']
+            
+            # Robust parsing: strip bullets, numbers, asterisks, parenthetical notes
+            import re
+            titles = []
+            for line in raw_content.split('\n'):
+                # Remove common prefixes: "1.", "- ", "* ", "*   ", etc.
+                t = re.sub(r'^[\d\.\-\*\s]+', '', line).strip()
+                # Remove trailing parenthetical explanations
+                t = re.sub(r'\s*\([^)]*\)\s*$', '', t).strip()
+                # Remove quotes and leading/trailing underscores
+                t = t.strip('"').strip("'").strip('_')
+                # Skip garbage (starts with punctuation, too short, etc.)
+                if not t or len(t) < 3 or t.startswith('(') or t.startswith('['):
+                    continue
+                # Accept valid-looking titles
+                if ' ' not in t and len(t) < 100:
+                    titles.append(t)
+            
+            # ENTITY PREFIX EXTRACTION: From "Tupac_Shakur_Murder_Case", also try "Tupac_Shakur" and "Tupac"
+            prefix_candidates = []
+            for t in titles:
+                parts = t.split('_')
+                if len(parts) >= 2:
+                    # Try first 2 words (common for person names)
+                    prefix_candidates.append('_'.join(parts[:2]))
+                if len(parts) >= 1:
+                    # Try first word alone
+                    prefix_candidates.append(parts[0])
+            
+            # Add heuristic fallbacks
+            heuristic = [
+                query.replace(" ", "_"),
+                query.title().replace(" ", "_"),
+            ]
+            
+            # Combine: LLM titles first, then prefixes, then heuristics
+            all_candidates = titles + prefix_candidates + heuristic
+            
+            # Dedupe while preserving order
+            final_titles = []
+            seen = set()
+            for t in all_candidates:
+                if t and t not in seen and len(t) >= 3:
+                    final_titles.append(t)
+                    seen.add(t)
+                    
+            debug_print(f"Title Candidates: {final_titles}")
+            return final_titles
+            
+        except Exception as e:
+            debug_print(f"Title Generation Failed: {e}")
+            return [query.replace(" ", "_"), query.title().replace(" ", "_")]
+
+    def get_zim_archive(self, zim_path: str):
+        """
+        Get ZIM archive handle with lazy loading and caching.
+        This prevents repeated archive opens which are expensive (~100-500ms each).
+        """
+        if not zim_path:
+            return None
+        
+        abs_path = os.path.abspath(zim_path)
+        
+        if abs_path not in self.zim_archives:
+            debug_print(f"Opening ZIM archive (cached): {os.path.basename(abs_path)}")
+            try:
+                self.zim_archives[abs_path] = libzim.Archive(abs_path)
+            except Exception as e:
+                print(f"Failed to open ZIM: {abs_path}: {e}")
+                return None
+        
+        return self.zim_archives[abs_path]
+
+    def build_index(self, zim_path: str = None, zim_paths: List[str] = None, limit: int = None, batch_size: int = 1000):
+        """
+        Build UNIFIED Semantic Title Index from one or more ZIM files.
+        Each title entry stores its source_zim for retrieval routing.
+        
+        Args:
+            zim_path: Single ZIM path (legacy, for backwards compat)
+            zim_paths: List of ZIM paths (preferred for multi-ZIM)
+            limit: Max titles per ZIM (None = all)
+            batch_size: Embedding batch size
         """
         import torch
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -136,69 +255,104 @@ class RAGSystem:
         
         if not self.encoder:
             self.encoder = SentenceTransformer(self.model_name, device=device)
-            
-        print(f"Scanning ZIM file: {zim_path}")
-        zim = libzim.Archive(zim_path)
         
-        total_entries = zim.entry_count
-        print(f"Total entries: {total_entries}")
+        # Determine which ZIMs to index
+        paths_to_index = []
+        if zim_paths:
+            paths_to_index = [os.path.abspath(p) for p in zim_paths]
+        elif zim_path:
+            paths_to_index = [os.path.abspath(zim_path)]
+        else:
+            paths_to_index = self.zim_paths  # Use discovered ZIMs
         
-        if not limit:
-            limit = total_entries
+        if not paths_to_index:
+            print("Error: No ZIM files to index.")
+            return
+        
+        print(f"\n{'='*60}")
+        print(f"BUILDING UNIFIED TITLE INDEX FOR {len(paths_to_index)} ZIM FILE(S)")
+        print(f"{'='*60}")
             
-        # Initialize Title FAISS
+        # Initialize UNIFIED Title FAISS
         self.title_faiss_index = faiss.IndexFlatIP(384)
         self.title_metadata = []
         
-        titles = []
-        paths = []
+        total_indexed = 0
         
-        # Iterate ZIM entries (simplified for titles)
-        count = 0
-        for i in range(total_entries):
-            if count >= limit:
-                break
-                
-            entry = zim.get_entry_by_index(i)
-            # Filter for articles in namespace 'A'
-            if entry.path.startswith("A/"):
-                titles.append(entry.title)
-                paths.append(entry.path)
-                
-                # Batch processing
-                if len(titles) >= batch_size:
-                    embeddings = self.encoder.encode(titles)
-                    faiss.normalize_L2(embeddings)
-                    self.title_faiss_index.add(embeddings)
+        for zim_file in paths_to_index:
+            zim_name = os.path.basename(zim_file)
+            print(f"\nScanning: {zim_name}")
+            
+            try:
+                zim = libzim.Archive(zim_file)
+            except Exception as e:
+                print(f"  ERROR: Failed to open {zim_name}: {e}")
+                continue
+            
+            total_entries = zim.entry_count
+            print(f"  Total entries: {total_entries}")
+            
+            zim_limit = limit if limit else total_entries
+            
+            titles = []
+            paths = []
+            source_zims = []
+            
+            count = 0
+            for i in range(total_entries):
+                if count >= zim_limit:
+                    break
                     
-                    # Store meta
-                    for j, title in enumerate(titles):
-                         self.title_metadata.append({
-                             'title': title,
-                             'path': paths[j]
-                         })
-                         
-                    titles = []
-                    paths = []
-                    print(f"Indexed {len(self.title_metadata)} titles...")
+                entry = zim.get_entry_by_index(i)
+                # Filter for articles in namespace 'A'
+                if entry.path.startswith("A/"):
+                    titles.append(entry.title)
+                    paths.append(entry.path)
+                    source_zims.append(zim_file)  # Tag with source!
                     
-                count += 1
+                    # Batch processing
+                    if len(titles) >= batch_size:
+                        embeddings = self.encoder.encode(titles)
+                        faiss.normalize_L2(embeddings)
+                        self.title_faiss_index.add(embeddings)
+                        
+                        # Store meta WITH source_zim
+                        for j, title in enumerate(titles):
+                             self.title_metadata.append({
+                                 'title': title,
+                                 'path': paths[j],
+                                 'source_zim': source_zims[j]  # Critical for multi-ZIM!
+                             })
+                             
+                        titles = []
+                        paths = []
+                        source_zims = []
+                        print(f"  Indexed {len(self.title_metadata)} titles...")
+                        
+                    count += 1
+            
+            # Final batch for this ZIM
+            if titles:
+                embeddings = self.encoder.encode(titles)
+                faiss.normalize_L2(embeddings)
+                self.title_faiss_index.add(embeddings)
+                for j, title in enumerate(titles):
+                     self.title_metadata.append({
+                         'title': title,
+                         'path': paths[j],
+                         'source_zim': source_zims[j]
+                     })
+            
+            zim_count = count
+            total_indexed += zim_count
+            print(f"  Completed: {zim_count} titles from {zim_name}")
         
-        # Final batch
-        if titles:
-            embeddings = self.encoder.encode(titles)
-            faiss.normalize_L2(embeddings)
-            self.title_faiss_index.add(embeddings)
-            for j, title in enumerate(titles):
-                 self.title_metadata.append({
-                     'title': title,
-                     'path': paths[j]
-                 })
-                 
-        print(f"Index build complete. Total: {len(self.title_metadata)}")
+        print(f"\n{'='*60}")
+        print(f"UNIFIED INDEX COMPLETE: {total_indexed} titles from {len(paths_to_index)} ZIM(s)")
+        print(f"{'='*60}")
         
-        # Save indices
-        print("Saving indices...")
+        # Save unified indices
+        print("Saving unified indices...")
         faiss.write_index(self.title_faiss_index, self.title_faiss_path)
         with open(self.title_meta_path, 'wb') as f:
             pickle.dump(self.title_metadata, f)
@@ -206,335 +360,157 @@ class RAGSystem:
 
     def retrieve(self, query: str, top_k: int = 5, mode: str = "FACTUAL", rebound_depth: int = 0, extra_terms: List[str] = None) -> List[Dict]:
         """
-        Main Retrieval Function (JIT RAG Pipeline).
-        mode: "FACTUAL" (default) or "CODE" (prioritizes code blocks)
-        extra_terms: Optional list of improved search terms from a previous failed pass (Adaptive RAG)
+        Zero-Index Retrieval Pipeline.
+        1. Ask LLM for probable titles.
+        2. 'Shotgun' check these titles against ALL ZIM files.
+        3. Return hits.
         """
-        # === EPHEMERAL INDEX RESET ===
-        # Reset JIT-specific state to ensure query isolation.
-        if rebound_depth == 0:
-            debug_print("EPHEMERAL RESET: Clearing JIT index state...")
-            self.faiss_index = None  # Will be re-created if articles are found
-            self.doc_chunks = []     # Fresh chunks for this query only
-            self.documents = []      # Fresh metadata for this query only
-            self.indexed_paths = set()  # Reset path tracking
-            self._chunk_id = 0       # Reset chunk ID counter for metadata alignment
-            debug_print("EPHEMERAL RESET COMPLETE: faiss_index=None, doc_chunks=[], documents=[], indexed_paths={}")
-        else:
-            debug_print(f"EPHEMERAL RESET SKIPPED (Rebound Depth: {rebound_depth}) - Maintaining index state.")
-
-        # Ensure encoder is loaded
-        if not self.encoder:
-             self.encoder = SentenceTransformer(self.model_name, device="cpu")
-
-        print(f"\\nProcessing Query: '{query}'")
-        
-        # 0. JIT Indexing step
         debug_print("-" * 70)
-        debug_print("PHASE 0: JUST-IN-TIME INDEXING")
-        try:
-            # 0a. Entity Extraction (Joint 1)
-            entity_info = None
-            search_terms = [query]
-            if extra_terms:
-                search_terms.extend(extra_terms)
-                
-            is_comparison = False
-            
-            if self.use_joints and self.entity_joint:
-                debug_print("0a. Entity extraction with Joint 1...")
-                entity_info = self.entity_joint.extract(query)
-                
-                # Joint 0.5: Multi-Hop Resolution
-                if self.resolver_joint:
-                    try:
-                        indirects = self.resolver_joint.detect_indirect_references(entity_info)
-                        for ind in indirects:
-                            target = ind['target']
-                            debug_print(f"Resolving multi-hop: '{ind['indirect_entity']}' via '{target}'...")
-                            
-                            # Target search (High Priority)
-                            target_candidates = self.search_by_title(target, full_text=True)
-                            if target_candidates:
-                                 target_text = target_candidates[0]['text']
-                                 resolved_name = self.resolver_joint.resolve_indirect_reference(ind, target_text)
-                                 if resolved_name:
-                                     new_entity = {
-                                         'name': resolved_name,
-                                         'type': 'person',
-                                         'aliases': []
-                                     }
-                                     if 'entities' in entity_info:
-                                        entity_info['entities'].append(new_entity)
-                                     search_terms.append(resolved_name)
-                                     print(f"Resolved '{ind['indirect_entity']}' -> {resolved_name}")
-                    except Exception as e:
-                        debug_print(f"Multi-hop resolution failed: {e}")
-                
-                # Update search terms
-                extracted_names = [e.get('name') for e in entity_info.get('entities', []) if e.get('name')]
-                if extracted_names:
-                     search_terms = extracted_names + search_terms
-                
-                is_comparison = entity_info.get('is_comparison', False)
-                debug_print(f"Extracted Entities: {extracted_names}")
-                debug_print(f"Is Comparison: {is_comparison}")
-            
-            # 0b. Candidate Selection
-            candidates_to_index = []
-            seen_titles = set()
-            
-            debug_print(f"Searching ZIM for terms: {search_terms}")
-            
-            raw_candidates = []
-            for term in search_terms:
-                term_results = self.search_by_title(term, full_text=True)
-                raw_candidates.extend(term_results)
-            
-            unique_candidates = []
-            for cand in raw_candidates:
-                t = cand['metadata']['title']
-                if t not in seen_titles:
-                    seen_titles.add(t)
-                    unique_candidates.append(cand)
-            
-            debug_print(f"Found {len(unique_candidates)} unique raw candidates from ZIM search")
-            
-            # Joint 2: Article Scoring
-            if self.use_joints and self.scorer_joint and entity_info:
-                 debug_print("0c. Scoring candidates with Joint 2...")
-                 titles_to_score = [c['metadata']['title'] for c in unique_candidates[:20]]
-                 scored_titles_list = self.scorer_joint.score(query, entity_info, titles_to_score)
-                 
-                 scored_map = {t: s for t, s in scored_titles_list}
-                 
-                 final_candidates = []
-                 for cand in unique_candidates:
-                     t = cand['metadata']['title']
-                     if t in scored_map:
-                         cand['score'] = scored_map[t]
-                         if cand['score'] >= getattr(config, 'MIN_ARTICLE_SCORE', 4.0):
-                             final_candidates.append(cand)
-                             
-                 final_candidates.sort(key=lambda x: x.get('score', 0), reverse=True)
-                 candidates_to_index = final_candidates[:5]
-                 
-                 debug_print(f"Joint 2 selected {len(candidates_to_index)} articles for indexing")
-                 
-                 # Joint 2.5: Coverage Verification
-                 if self.coverage_joint and is_comparison:
-                      debug_print("0d. Verifying coverage (Joint 2.5)...")
-                      coverage = self.coverage_joint.verify_coverage(entity_info, candidates_to_index)
-                      
-                      if not coverage['complete']:
-                           debug_print(f"Coverage Gap Detected! Missing: {coverage['missing']}")
-                           debug_print(f"Triggering gap-fill search for: {coverage['suggested_searches']}")
-                           for gap_term in coverage['suggested_searches']:
-                                gap_results = self.search_by_title(gap_term, full_text=True)
-                                for res in gap_results:
-                                     if res['metadata']['title'] not in seen_titles:
-                                          res['score'] = 10.0
-                                          candidates_to_index.append(res)
-                                          seen_titles.add(res['metadata']['title'])
-                                          break
-                           debug_print(f"After gap-fill: {len(candidates_to_index)} candidates")
-            else:
-                 candidates_to_index = unique_candidates[:5]
-
-            # 0e. Indexing Loop
-            newly_indexed = 0
-            if self.faiss_index is None:
-                 debug_print("Creating new JIT FAISS index...")
-                 self.faiss_index = faiss.IndexFlatIP(384)
-            
-            for cand in candidates_to_index:
-                path = cand['metadata']['path']
-                title = cand['metadata']['title']
-                text = cand['text']
-                
-                if path in self.indexed_paths:
-                    continue
-                    
-                debug_print(f"JIT Indexing: '{title}' ({len(text)} chars)...")
-                raw_chunks = TextProcessor.chunk_text(text, chunk_size=500, overlap=50)
-                
-                if not raw_chunks:
-                    continue
-                    
-                embeddings = self.encoder.encode(raw_chunks)
-                faiss.normalize_L2(embeddings)
-                self.faiss_index.add(embeddings)
-                
-                for i, chunk_text in enumerate(raw_chunks):
-                    self.doc_chunks.append(chunk_text)
-                    self.documents.append({
-                        'title': title,
-                        'path': path,
-                        'source_zim': cand['metadata'].get('source_zim'),
-                        'chunk_id': self._chunk_id
-                    })
-                    self._chunk_id += 1
-                
-                self.indexed_paths.add(path)
-                newly_indexed += 1
-            
-            debug_print(f"JIT Indexing Complete. Added {newly_indexed} articles. Total chunks: {len(self.doc_chunks)}")
-            
-        except Exception as e:
-            print(f"JIT Indexing Failed: {e}")
-            import traceback
-            traceback.print_exc()
-
-        # 1. Dense Retrieval
-        debug_print("-" * 70)
-        debug_print("PHASE 1: DENSE RETRIEVAL")
+        debug_print(f"ZERO-INDEX RETRIEVAL: '{query}'")
         
-        if not self.faiss_index or self.faiss_index.ntotal == 0:
-            print("No index available for retrieval.")
-            return []
-
-        q_emb = self.encoder.encode([query])
-        faiss.normalize_L2(q_emb)
+        # 1. Generate Candidates
+        candidates = self._generate_candidate_titles(query)
+        if extra_terms:
+            candidates.extend(extra_terms)
+            
+        final_results = []
+        seen_titles = set()
         
-        search_k = top_k * 3 
-        D, I = self.faiss_index.search(q_emb, search_k)
-        
-        dense_results = []
-        for i, idx in enumerate(I[0]):
-            if idx == -1 or idx >= len(self.doc_chunks):
+        # 2. Shotgun Search across all ZIMs
+        for title_guess in candidates:
+            # Normalize title for display check (simple dedup)
+            simple_title = title_guess.replace('_', ' ')
+            if simple_title in seen_titles:
                 continue
-            dense_results.append((idx, float(D[0][i])))
             
-        debug_print(f"Dense search found {len(dense_results)} candidates")
-
-        top_candidates = dense_results 
-        
-        # 4. Neural Reranking / LLM Filtering (Joint 3)
-        debug_print("-" * 70)
-        debug_print("PHASE 3: LLM FILTERING (JOINT 3)")
-        
-        reranked_results = []
-        
-        if self.use_joints and self.filter_joint:
-            candidate_chunks = []
-            for idx, score in top_candidates:
-                candidate_chunks.append({
-                    'text': self.doc_chunks[idx],
-                    'metadata': self.documents[idx],
-                    'rrf_score': score
-                })
+            # Try variations to find a hit (modern ZIMs often omit A/ prefix)
+            base_title = title_guess.replace(' ', '_')
+            variations = [
+                base_title,                             # As-is: photosynthesis
+                base_title.capitalize(),                # Cap: Photosynthesis
+                base_title.title(),                     # Title: Photosynthesis
+                f"A/{base_title}",                      
+                f"A/{base_title.capitalize()}",
+                title_guess,
+                f"A/{title_guess}",
+            ]
             
-            debug_print("Filtering chunks with Joint 3...")
-            answer_type = entity_info.get('answer_type') if entity_info else None
-            
-            try:
-                filtered_chunks = self.filter_joint.filter(
-                    query, 
-                    candidate_chunks, 
-                    top_k=top_k, 
-                    entity_info=entity_info, 
-                    mode=mode,
-                    answer_type=answer_type
-                )
+            found_hit = False
+            for zim_path in self.zim_paths:
+                zim = self.get_zim_archive(zim_path)
+                if not zim: continue
                 
-                for f_chunk in filtered_chunks:
-                     for idx, _ in top_candidates:
-                         if self.doc_chunks[idx] == f_chunk['text']:
-                             new_score = f_chunk.get('relevance_score', 0)
-                             reranked_results.append((idx, new_score))
-                             break
+                for path_var in variations:
+                    try:
+                        entry = zim.get_entry_by_path(path_var)
+                        if entry:
+                            # Resolve Redirects
+                            if entry.is_redirect:
+                                try:
+                                    entry = entry.get_redirect_entry()
+                                    if not entry:
+                                        continue
+                                    debug_print(f"    Resolved redirect to: {entry.path}")
+                                except Exception as e:
+                                    debug_print(f"    Failed to resolve redirect: {e}")
+                                    continue
+
+                            # Process Resolved Entry
+                            if not entry.is_redirect:
+                                item = entry.get_item()
+                                debug_print(f"    Mimetype: {item.mimetype}")
+                                if item.mimetype == 'text/html':
+                                    content = item.content.tobytes().decode('utf-8', errors='ignore')
+                                    text_content = TextProcessor.clean_text(content)
+                                    
+                                    final_results.append({
+                                        'text': text_content[:6000],
+                                        'metadata': {
+                                            'title': entry.title,
+                                            'path': path_var,
+                                            'source_zim': zim_path
+                                        },
+                                        'score': 100.0,
+                                        'search_context': {'entities': candidates}
+                                    })
+                                    
+                                    seen_titles.add(simple_title)
+                                    debug_print(f"  HIT: '{entry.title}' in {os.path.basename(zim_path)}")
+                                    found_hit = True
+                                    break
+                    except Exception as e:
+                        # Only log for the first few ZIMs to avoid spam
+                        pass
                 
-                debug_print(f"Joint 3 kept {len(reranked_results)} chunks")
-                
-            except Exception as e:
-                debug_print(f"Joint 3 filtering failed: {type(e).__name__}: {e}")
-                debug_print("Falling back to neural reranking")
-                self.use_joints = False
+                # Fallback: Try get_entry_by_title if path lookup failed
+                if not found_hit and 'wikipedia' in os.path.basename(zim_path).lower():
+                    try:
+                        entry = zim.get_entry_by_title(title_guess)
+                        
+                        # Resolve Redirects (Title lookup)
+                        if entry and entry.is_redirect:
+                             try:
+                                 entry = entry.get_redirect_entry()
+                             except:
+                                 pass
+
+                        if entry and not entry.is_redirect:
+                            item = entry.get_item()
+                            if item.mimetype == 'text/html':
+                                content = item.content.tobytes().decode('utf-8', errors='ignore')
+                                text_content = TextProcessor.clean_text(content)
+                                
+                                final_results.append({
+                                    'text': text_content[:6000],
+                                    'metadata': {
+                                        'title': entry.title,
+                                        'path': entry.path,
+                                        'source_zim': zim_path
+                                    },
+                                    'score': 100.0,
+                                    'search_context': {'entities': candidates}
+                                })
+                                
+                                seen_titles.add(simple_title)
+                                debug_print(f"  HIT (by title): '{entry.title}' in {os.path.basename(zim_path)}")
+                                found_hit = True
+                    except:
+                        pass
+                        
+                if found_hit: break
         
-        if not reranked_results:
-            debug_print("Using fallback ranking...")
-            reranked_results = top_candidates[:top_k]
-
-        # === ADAPTIVE RAG: QUALITY CHECK & REBOUND ===
-        if rebound_depth == 0 and self.use_joints and self.entity_joint:
-            top_score = reranked_results[0][1] if reranked_results else 0.0
-            if len(reranked_results) == 0 or top_score < config.ADAPTIVE_THRESHOLD:
-                debug_print(f"[ADAPTIVE] Quality Check Failed: top_score={top_score}")
-                pass 
-
-        # Joint 3.5: Comparison Synthesis
-        comparison_data = None
-        if self.use_joints and self.comparison_joint and reranked_results:
-             is_comparison = entity_info.get('is_comparison', False) if entity_info else False
-             if is_comparison:
-                  debug_print("-" * 70)
-                  debug_print("PHASE 3.5: COMPARISON SYNTHESIS")
-                  joint_chunks = []
-                  for idx, score in reranked_results:
-                       joint_chunks.append({
-                           'text': self.doc_chunks[idx],
-                           'relevance_score': score
-                       })
-                  
-                  entities = entity_info.get('entities', []) if entity_info else []
-                  entity_names = [e.get('name') for e in entities if e.get('name')]
-                  dimension = entity_info.get('comparison_dimension') if entity_info else None
-                  
-                  try:
-                      comparison_data = self.comparison_joint.synthesize_comparison(query, entity_names, dimension, joint_chunks)
-                  except Exception as e:
-                      debug_print(f"Comparison synthesis failed: {e}")
-
-        # 5. Fact Refinement (Joint 4)
-        debug_print("-" * 70)
-        debug_print("PHASE 5: FACT REFINEMENT (JOINT 4)")
-        extracted_facts = []
-
-        results = []
-        debug_print("-" * 70)
-        debug_print("PHASE 6: RESULTS ASSEMBLY")
-        for i, (idx, score) in enumerate(reranked_results):
-            if idx < len(self.doc_chunks):
-                doc = self.documents[idx]
-                results.append({
-                    'text': self.doc_chunks[idx],
-                    'metadata': doc,
-                    'score': score,
-                    'search_context': {
-                        'entities': search_terms, 
-                        'facts': extracted_facts,
-                        'comparison_data': comparison_data,
-                        'answer_type': answer_type if 'answer_type' in locals() else None 
-                    }
-                })
+        # 3. Sort by relevance order (LLM order + heuristic order) is implicit
+        # We assume the first LLM guesses are best.
         
-        debug_print(f"RETRIEVE COMPLETE. Returning {len(results)} results")
-        debug_print("=" * 70)
-        return results
+        debug_print(f"Zero-Index Search found {len(final_results)} direct matches.")
+        
+        # 4. Joint Processing (Refinement)
+        # If we have joints enabled, run FactRefinement on the top results
+        if self.use_joints and self.fact_joint and final_results:
+             debug_print(f"[JOINT 4 INPUT] Refining facts for {len(final_results)} results...")
+             for res in final_results[:3]: # Only refine top 3 to save time
+                 try:
+                     facts = self.fact_joint.refine_facts(query, res['text'])
+                     if facts:
+                         res['extracted_facts'] = facts
+                         debug_print(f"[JOINT 4 OUTPUT] Extracted {len(facts)} facts from {res['metadata']['title']}")
+                         # Append facts to text for visibility
+                         facts_str = "\n".join([f"- {f}" for f in facts])
+                         res['text'] = f"*** VERIFIED FACTS ***\n{facts_str}\n\n*** SOURCE CONTENT ***\n{res['text']}"
+                 except Exception as e:
+                     debug_print(f"Joint 4 failed: {e}")
+
+        return final_results[:top_k]
 
     def search_by_title(self, query: str, zim_path: str = None, full_text: bool = False) -> List[Dict]:
-        """Search for articles by title using Semantic Title Index or ZIM path fallback."""
-        import glob
-        
-        # Use instance-level ZIM path if not provided
-        if not zim_path:
-            zim_path = self.zim_path
-
-        if not zim_path:
-            zims = glob.glob("*.zim")
-            if not zims:
-                print("No ZIM file found.")
-                return []
-            zim_path = zims[0]
-            
+        """
+        Search for articles by title using UNIFIED Semantic Title Index.
+        Multi-ZIM aware: fetches content from the correct source ZIM.
+        """
         results = []
+        
         try:
-            if not self.zim_archive:
-                debug_print(f"Opening ZIM archive: {zim_path}")
-                self.zim_archive = libzim.Archive(zim_path)
-            zim = self.zim_archive
-            
-            # 1. Semantic Title Search (Preferred)
+            # 1. Semantic Title Search (Preferred - uses UNIFIED index)
             if self.title_faiss_index and self.title_metadata and self.encoder:
                  q_emb = self.encoder.encode([query])
                  faiss.normalize_L2(q_emb)
@@ -543,6 +519,20 @@ class RAGSystem:
                  for i, idx in enumerate(I[0]):
                      if idx != -1 and idx < len(self.title_metadata):
                          meta = self.title_metadata[int(idx)]
+                         
+                         # Get the correct ZIM archive for this result
+                         source_zim = meta.get('source_zim')
+                         if not source_zim:
+                             # Legacy index without source_zim, fall back
+                             source_zim = self.zim_path or (self.zim_paths[0] if self.zim_paths else None)
+                         
+                         if not source_zim:
+                             continue
+                         
+                         zim = self.get_zim_archive(source_zim)
+                         if not zim:
+                             continue
+                         
                          try:
                              entry = zim.get_entry_by_path(meta['path'])
                              item = entry.get_item()
@@ -552,7 +542,7 @@ class RAGSystem:
                                  'metadata': {
                                      'title': meta['title'],
                                      'path': meta['path'],
-                                     'source_zim': zim_path
+                                     'source_zim': source_zim
                                  },
                                  'score': float(D[0][i])
                              })
@@ -560,7 +550,8 @@ class RAGSystem:
                              continue
                  return results
             
-            # 2. Heuristic Path Fallback
+            # 2. Heuristic Path Fallback (searches ALL ZIMs)
+            debug_print(f"No title index, using heuristic fallback across {len(self.zim_paths)} ZIM(s)")
             guess_title = query.replace(" ", "_")
             paths_to_try = [
                 f"A/{guess_title}", 
@@ -568,23 +559,30 @@ class RAGSystem:
                 f"A/{query}"
             ]
             
-            for p in paths_to_try:
-                try:
-                    entry = zim.get_entry_by_path(p)
-                    if entry:
-                        item = entry.get_item()
-                        content = item.content.tobytes().decode('utf-8', errors='ignore')
-                        results.append({
-                             'text': content,
-                             'metadata': {
-                                 'title': entry.title,
-                                 'path': p,
-                                 'source_zim': zim_path
-                             },
-                             'score': 100.0
-                        })
-                except Exception:
-                    pass
+            for search_zim in self.zim_paths:
+                zim = self.get_zim_archive(search_zim)
+                if not zim:
+                    continue
+                
+                for p in paths_to_try:
+                    try:
+                        entry = zim.get_entry_by_path(p)
+                        if entry:
+                            item = entry.get_item()
+                            content = item.content.tobytes().decode('utf-8', errors='ignore')
+                            results.append({
+                                 'text': content,
+                                 'metadata': {
+                                     'title': entry.title,
+                                     'path': p,
+                                     'source_zim': search_zim
+                                 },
+                                 'score': 100.0
+                            })
+                            # Found in this ZIM, move to next path
+                            break
+                    except Exception:
+                        pass
             
             return results
 

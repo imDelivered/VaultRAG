@@ -1259,9 +1259,10 @@ class ChatbotGUI:
             self.chat_display.tag_add(link_tag, start_pos, end_pos)
             self.chat_display.tag_config(link_tag, foreground="#5DB9FF" if self.dark_mode else "blue", underline=True)
             
-            # Store the path for this link
+            # Store the path and source ZIM for this link
             highlight_terms = link.get('search_context', {}).get('entities', [])
-            self.chat_display.tag_bind(link_tag, "<Button-1>", lambda e, p=path, ht=highlight_terms: self.open_zim_article(p, highlight_terms=ht))
+            source_zim = link.get('metadata', {}).get('source_zim', None)
+            self.chat_display.tag_bind(link_tag, "<Button-1>", lambda e, p=path, ht=highlight_terms, sz=source_zim: self.open_zim_article(p, highlight_terms=ht, source_zim=sz))
             self.chat_display.tag_bind(link_tag, "<Enter>", lambda e: self.chat_display.config(cursor="hand2"))
             self.chat_display.tag_bind(link_tag, "<Leave>", lambda e: self.chat_display.config(cursor=""))
         
@@ -1274,9 +1275,12 @@ class ChatbotGUI:
         self.chat_display.insert(self.tk.END, "\n\n")
         self.chat_display.see(self.tk.END)
     
-    def open_zim_article(self, path, highlight_terms=None):
-        """Open a ZIM article in a new window."""
-        print(f"[GUI] Opening ZIM path: '{path}'")
+    def open_zim_article(self, path, highlight_terms=None, source_zim=None):
+        """
+        Open a ZIM article in a new window.
+        Multi-ZIM aware: uses source_zim if provided, otherwise searches all ZIMs.
+        """
+        print(f"[GUI] Opening ZIM path: '{path}' (source: {source_zim or 'auto-detect'})")
         try:
             try:
                 import libzim
@@ -1285,67 +1289,86 @@ class ChatbotGUI:
                 return
 
             from chatbot.rag import TextProcessor
-            
-            # Find the ZIM file
             import os
-            zim_files = [f for f in os.listdir('.') if f.endswith('.zim')]
-            if not zim_files:
+            
+            # === MULTI-ZIM SUPPORT ===
+            # If source_zim is provided, use it directly; otherwise search all ZIMs
+            zim_files_to_try = []
+            
+            if source_zim and os.path.exists(source_zim):
+                zim_files_to_try = [source_zim]
+            else:
+                # Fall back to discovering all ZIM files
+                zim_files_to_try = [os.path.abspath(f) for f in os.listdir('.') if f.endswith('.zim')]
+            
+            if not zim_files_to_try:
                 self.messagebox.showerror("Error", "No ZIM files found")
                 return
             
-            zim_file = zim_files[0]
-            print(f"[GUI] Using ZIM file: {zim_file}")
-            zim = libzim.Archive(zim_file)
-            
             entry = None
+            zim = None
+            used_zim = None
             
-            # Helper to try finding an entry
-            def try_find(p):
+            # Helper to try finding an entry in a specific ZIM
+            def try_find(archive, p):
                 try:
-                    return zim.get_entry_by_path(p)
+                    return archive.get_entry_by_path(p)
                 except:
                     return None
 
-            # Strategy 1: Direct path
-            entry = try_find(path)
-            
-            # Strategy 2: Title lookup
-            if not entry:
+            # Try each ZIM file until we find the article
+            for zim_file in zim_files_to_try:
                 try:
-                    entry = zim.get_entry_by_title(path)
-                except:
-                    pass
+                    zim = libzim.Archive(zim_file)
+                except Exception as e:
+                    print(f"[GUI] Failed to open {zim_file}: {e}")
+                    continue
+                
+                print(f"[GUI] Searching in: {os.path.basename(zim_file)}")
+                
+                # Strategy 1: Direct path
+                entry = try_find(zim, path)
+                
+                # Strategy 2: Title lookup
+                if not entry:
+                    try:
+                        entry = zim.get_entry_by_title(path)
+                    except:
+                        pass
 
-            # Strategy 3: Variations (Smart Fallback)
-            if not entry:
-                variations = []
-                # Common ZIM variations
-                if ' ' in path:
-                    variations.append(path.replace(' ', '_'))
-                if '_' in path:
-                    variations.append(path.replace('_', ' '))
-                
-                # Title Case
-                variations.append(path.title())
-                if ' ' in path:
-                    variations.append(path.title().replace(' ', '_'))
-                
-                # Slash handling
-                paths_to_try = [path] + variations
-                
-                for candidate in paths_to_try:
-                    # Try raw, with leading slash, without leading slash
-                    attempts = [candidate]
-                    if not candidate.startswith('/'): attempts.append('/' + candidate)
-                    if candidate.startswith('/'): attempts.append(candidate[1:])
+                # Strategy 3: Variations (Smart Fallback)
+                if not entry:
+                    variations = []
+                    # Common ZIM variations
+                    if ' ' in path:
+                        variations.append(path.replace(' ', '_'))
+                    if '_' in path:
+                        variations.append(path.replace('_', ' '))
                     
-                    for attempt in attempts:
-                        print(f"[GUI] Trying variation: '{attempt}'")
-                        entry = try_find(attempt)
-                        if entry: 
-                            print(f"[GUI] Found match: '{attempt}'")
-                            break
-                    if entry: break
+                    # Title Case
+                    variations.append(path.title())
+                    if ' ' in path:
+                        variations.append(path.title().replace(' ', '_'))
+                    
+                    # Slash handling
+                    paths_to_try = [path] + variations
+                    
+                    for candidate in paths_to_try:
+                        # Try raw, with leading slash, without leading slash
+                        attempts = [candidate]
+                        if not candidate.startswith('/'): attempts.append('/' + candidate)
+                        if candidate.startswith('/'): attempts.append(candidate[1:])
+                        
+                        for attempt in attempts:
+                            entry = try_find(zim, attempt)
+                            if entry: 
+                                print(f"[GUI] Found match: '{attempt}' in {os.path.basename(zim_file)}")
+                                break
+                        if entry: break
+                
+                if entry:
+                    used_zim = zim_file
+                    break  # Found in this ZIM, stop searching
 
             if not entry or entry.is_redirect:
                 print(f"[GUI] Article not found: {path} (and variations)")

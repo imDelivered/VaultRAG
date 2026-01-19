@@ -154,30 +154,26 @@ def get_rag_system():
     debug_print("get_rag_system called")
     if _rag_system is None:
         debug_print("RAG system not initialized, checking for resources...")
-        # Initialize only if index exists
-        import os
         import os
         import glob
         
-        # Find ZIM file
-        zim_file = None
-        # Check explicit config first (if we had one)
-        # Check current directory
-        zims = glob.glob("*.zim")
-        if zims:
-            zim_file = os.path.abspath(zims[0])
+        # === MULTI-ZIM: Discover ALL ZIM files ===
+        zim_files = glob.glob("*.zim")
+        zim_paths = [os.path.abspath(z) for z in zim_files]
         
-        if os.path.exists("data/indices/content_index.faiss") or os.path.exists("data/indices/title_index.faiss") or zim_file:
+        has_index = os.path.exists("data/indices/content_index.faiss") or os.path.exists("data/indices/title_index.faiss")
+        
+        if has_index or zim_paths:
             try:
-                print(f"Initializing RAG system (Hybrid/Fast)...")
-                if zim_file:
-                    print(f"Found ZIM: {os.path.basename(zim_file)}")
+                print(f"Initializing RAG system (Multi-ZIM Mode)...")
+                if zim_paths:
+                    print(f"Found {len(zim_paths)} ZIM file(s)")
                 else:
-                    print("Warning: No ZIM file found, relying on existing index only.")
-                    
-                _rag_system = RAGSystem(zim_path=zim_file)
-                # _rag_system.load_resources() # REMOVED: Method does not exist
-                debug_print("RAG system initialized successfully")
+                    print("Warning: No ZIM files found, relying on existing index only.")
+                
+                # Pass all ZIM paths for multi-ZIM support
+                _rag_system = RAGSystem(zim_paths=zim_paths)
+                debug_print("RAG system initialized successfully (multi-ZIM)")
             except Exception as e:
                 print(f"Failed to load RAG: {e}")
                 debug_print(f"RAG initialization failed: {e}")

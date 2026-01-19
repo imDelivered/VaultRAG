@@ -2,9 +2,7 @@
 # Note: PyTorch (GPU) is handled by setup.sh
 
 # Embeddings & RAG
-sentence-transformers
-faiss-cpu
-rank_bm25
+# Embeddings & RAG
 beautifulsoup4
 huggingface-hub
 libzim

@@ -24,9 +24,9 @@ OLLAMA_CHAT_URL = "N/A" # Legacy/Deprecated
 MODEL_ALETHEIA_3B = "Ishaanlol/Aletheia-Llama-3.2-3B" 
 MODEL_QWEN_1_5B = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"  # "Fast" Model
 MODEL_QWEN_7B = "Qwen/Qwen2.5-7B-Instruct-GGUF"      # "Smart" Model
+MODEL_NVIDIA_8B = "bartowski/nvidia_Llama-3.1-Nemotron-Nano-8B-v1-GGUF"
 
-
-DEFAULT_MODEL = MODEL_ALETHEIA_3B  # Using 3B model (single GGUF file for reliability)
+DEFAULT_MODEL = MODEL_NVIDIA_8B  # Using 8B model for best quality (unified with smart joints)
 STRICT_RAG_MODE = False
 MIN_ARTICLE_SCORE = 2.5
 DEBUG = True
@@ -42,16 +42,16 @@ USE_JOINTS = True
 
 # === TIERED MODEL ARCHITECTURE ===
 # Fast Models (1.5B) for high-volume, low-complexity tasks
-# Smart Models (7B) for reasoning, logic, and synthesis
+# Smart Models (8B) for reasoning, logic, and synthesis
 
 ENTITY_JOINT_MODEL = MODEL_QWEN_1_5B
 SCORER_JOINT_MODEL = MODEL_QWEN_1_5B
 FILTER_JOINT_MODEL = MODEL_QWEN_1_5B
 
-# Reasoning Joints (7B)
-FACT_JOINT_MODEL = MODEL_QWEN_7B       # Verification requires logic
-MULTI_HOP_JOINT_MODEL = MODEL_QWEN_7B  # Resolving recursive entities requires logic
-COMPARISON_JOINT_MODEL = MODEL_QWEN_7B # Synthesizing comparisons requires logic
+# Reasoning Joints (8B)
+FACT_JOINT_MODEL = MODEL_NVIDIA_8B       # Verification requires logic
+MULTI_HOP_JOINT_MODEL = MODEL_NVIDIA_8B  # Resolving recursive entities requires logic
+COMPARISON_JOINT_MODEL = MODEL_NVIDIA_8B # Synthesizing comparisons requires logic
 
 # Joint Temperatures
 ENTITY_JOINT_TEMP = 0.1
