@@ -94,6 +94,14 @@ class RAGSystem:
 
         # Initialize SentenceTransformer early (lazy load usually, but we need it for everything)
         try:
+            # Check for local offline model
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            local_embed_path = os.path.join(root_dir, "shared_models", "embedding")
+            
+            if os.path.exists(local_embed_path):
+                debug_print(f"Loading local embedding model from: {local_embed_path}")
+                self.model_name = local_embed_path
+            
             # Move encoder to CPU to save VRAM for the main LLM.
             # This encoder is still used for reranking or other semantic tasks, not for primary indexing in Zero-Index mode.
             self.encoder = SentenceTransformer(self.model_name, device="cpu")

@@ -7,14 +7,35 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from chatbot import config
 from chatbot.model_manager import ModelManager
 
-def main():
+if __name__ == "__main__":
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        print("Error: sentence-transformers not installed. Run setup.sh first.")
+        sys.exit(1)
+
     print("=== Downloading Hermit AI Models ===")
     print("Pre-fetching models for offline use...")
     
+    # 1. Download Embedding Model
+    print("\n[Checking] Embedding Model (all-MiniLM-L6-v2)...")
+    try:
+        root_dir = os.path.dirname(os.path.abspath(__file__))
+        embed_path = os.path.join(root_dir, "shared_models", "embedding")
+        
+        # This will download to cache, then we save to local dir
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        model.save(embed_path)
+        print(f"✓ Ready: {embed_path}")
+    except Exception as e:
+        print(f"❌ Failed to download embedding model: {e}")
+        sys.exit(1)
+
+    # 2. Download LLM GGUFs
     # Identify models from config
     models_to_download = [
-        config.MODEL_QWEN_1_5B,  # Fast Joint Model
-        config.MODEL_NVIDIA_8B   # Smart/Default Model (Nemotron 8B)
+        config.MODEL_QWEN_1_5B, # Fast Joint Model
+        config.MODEL_NVIDIA_8B  # Smart/Reasoning Model (Nvidia 8B)
     ]
 
     # De-duplicate
@@ -31,6 +52,3 @@ def main():
             sys.exit(1)
 
     print("\n✓ All models downloaded and ready for offline use.")
-
-if __name__ == "__main__":
-    main()
