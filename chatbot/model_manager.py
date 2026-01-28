@@ -431,15 +431,38 @@ class ModelManager:
                 n_ctx=n_ctx,
                 split_mode=split_mode,
                 tensor_split=tensor_split,
-                use_mmap=False, # Attempt to fix loading error
+                use_mmap=True, # [OPTIMIZATION] Try MMAP first for speed
                 verbose=True 
             )
             
             cls._instances[repo_id] = llm
             _notify_progress("ready", 1.0, f"{model_name} ready")
-            print(f"Model {repo_id} loaded successfully.")
+            print(f"Model {repo_id} loaded successfully (MMAP Enabled).")
             return llm
+
         except Exception as e:
+            # Fallback for MMAP failures or other loading issues
+            if "mmap" in str(e).lower() or "memory" in str(e).lower():
+                print(f"⚠️ MMAP/Memory Error: {e}")
+                print("   -> Retrying with use_mmap=False (Slower, but safer)...")
+                try:
+                    llm = Llama(
+                        model_path=model_path,
+                        n_gpu_layers=n_gpu_layers,
+                        n_ctx=n_ctx,
+                        split_mode=split_mode,
+                        tensor_split=tensor_split,
+                        use_mmap=False, # Fallback
+                        verbose=True 
+                    )
+                    cls._instances[repo_id] = llm
+                    _notify_progress("ready", 1.0, f"{model_name} ready (No MMAP)")
+                    print(f"Model {repo_id} loaded successfully (No MMAP).")
+                    return llm
+                except Exception as fallback_error:
+                     # If fallback also fails, then we really are broken
+                     raise fallback_error
+
             _notify_progress("error", -1, f"Failed to load: {e}")
             print(f"Failed to load model {repo_id}: {e}")
             raise

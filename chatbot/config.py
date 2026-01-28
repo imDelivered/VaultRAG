@@ -49,19 +49,22 @@ USE_JOINTS = True
 # Fast Models (1.5B) for high-volume, low-complexity tasks
 # Smart Models (8B) for reasoning, logic, and synthesis
 
-ENTITY_JOINT_MODEL = MODEL_QWEN_1_5B
-SCORER_JOINT_MODEL = MODEL_QWEN_1_5B
-FILTER_JOINT_MODEL = MODEL_QWEN_1_5B
+# Unified Architecture: Use the same model for everything to prevent VRAM swapping
+JOINT_MODEL = DEFAULT_MODEL 
+
+ENTITY_JOINT_MODEL = JOINT_MODEL
+SCORER_JOINT_MODEL = JOINT_MODEL
+FILTER_JOINT_MODEL = JOINT_MODEL
 
 # Reasoning Joints (8B)
 # NOTE: Using 1.5B for fact joint to eliminate model swapping overhead
 # This provides 3-5x faster orchestration (5-10s vs 20-30s per query)
 # with minimal quality impact. Re-enable 8B if precision is critical.
-FACT_JOINT_MODEL = MODEL_QWEN_1_5B       # Fast mode: 3-5x speedup
+FACT_JOINT_MODEL = JOINT_MODEL       # Fast mode: 3-5x speedup
 # FACT_JOINT_MODEL = MODEL_NVIDIA_8B     # Uncomment for higher precision
-MULTI_HOP_JOINT_MODEL = MODEL_QWEN_1_5B  # Using 1.5B (8B needs 6GB VRAM)
+MULTI_HOP_JOINT_MODEL = JOINT_MODEL  # Using 1.5B (8B needs 6GB VRAM)
 # MULTI_HOP_JOINT_MODEL = MODEL_NVIDIA_8B  # Uncomment if VRAM available
-COMPARISON_JOINT_MODEL = MODEL_QWEN_1_5B # Fast mode (was 8B)
+COMPARISON_JOINT_MODEL = JOINT_MODEL # Fast mode (was 8B)
 
 # Joint Temperatures
 ENTITY_JOINT_TEMP = 0.1
